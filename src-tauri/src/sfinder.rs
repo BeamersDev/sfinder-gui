@@ -135,9 +135,12 @@ fn build_cli_args(config: &SfinderCommandConfig) -> Vec<String> {
 /// Parse path CSV and compute coverage per fumen
 /// CSV format: pattern,coverage,used,unused,fumen(semicolon-separated)
 pub fn compute_path_coverage(csv_path: &str) -> Vec<PathResultEntry> {
+    eprintln!("[DEBUG] compute_path_coverage: csv_path={csv_path}");
     let Ok(content) = std::fs::read_to_string(csv_path) else {
+        eprintln!("[DEBUG] failed to read {csv_path}");
         return vec![];
     };
+    eprintln!("[DEBUG] read {} bytes", content.len());
 
     // fumen → (total_coverage, used_pieces)
     let mut map: HashMap<String, (u32, String)> = HashMap::new();
@@ -165,6 +168,9 @@ pub fn compute_path_coverage(csv_path: &str) -> Vec<PathResultEntry> {
         .map(|(fumen, (coverage, used))| PathResultEntry { fumen, coverage, used })
         .collect();
     results.sort_by(|a, b| b.coverage.cmp(&a.coverage));
+    eprintln!("[DEBUG] computed {} path results, top coverage: {}",
+        results.len(),
+        results.first().map(|r| r.coverage).unwrap_or(0));
     results
 }
 

@@ -258,12 +258,11 @@ export default function OutputViewer({ output, command }: OutputViewerProps) {
   }, [output.outputFiles]);
 
   const htmlOutput = Object.values(fileContents).find((c) => c.length > 50) || '';
+  const csvFileContent = Object.values(fileContents).find((c) => c.includes('テト譜')) || '';
   const { unique, minimal, allFumen, minimalFumen } = useMemo(() => parseSolutions(htmlOutput), [htmlOutput]);
-  const pathRows = (output.pathResults || []).map((r) => ({
-    fumen: r.fumen,
-    coverage: r.coverage,
-    used: r.used,
-  }));
+  const pathRows = useMemo(() => {
+    return (output.pathResults || []).map((r) => ({ fumen: r.fumen, coverage: r.coverage, used: r.used }));
+  }, [output.pathResults]);
 
   const handleView = (fumen: string) => {
     try {
