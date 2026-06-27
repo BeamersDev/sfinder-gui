@@ -193,14 +193,49 @@ function combineFumens(items: { fumen: string; coverage: number }[], totalPatter
       const pct = (item.coverage / totalPatterns * 100).toFixed(2);
       const comment = `Covered patterns(${item.coverage}/${totalPatterns}) (${pct}%)`;
       const pages = decoder.decode(item.fumen.startsWith('v115@') ? item.fumen : `v115@${item.fumen}`);
-      // Take page with max blocks (peak before line clears)
-      let bestPage = pages[0];
-      let maxBlocks = 0;
-      for (const page of pages) {
-        const cnt = page.field.str().replace(/_/g, '').length;
-        if (cnt > maxBlocks) { maxBlocks = cnt; bestPage = page; }
+      // Reconstruct peak field by inserting cleared lines backwards
+      // Algorithm: start from final field, detect clears at each step, insert garbage rows
+      const field = pages[pages.length - 1].field.copy();
+
+      // Process pages backwards to undo line clears
+      for (let pi = pages.length - 1; pi >= 1; pi--) {
+        const prevPage = pages[pi - 1];
+        const currPage = pages[pi];
+        const prevBlocks = prevPage.field.str().replace(/_/g, '').length;
+        const currBlocks = currPage.field.str().replace(/_/g, '').length;
+
+        // Lines cleared in this step
+        const clearedCount = Math.max(0, (prevBlocks - currBlocks) / 10) | 0;
+
+        // Find which rows were full in previous page (these were cleared)
+        const fullRows: number[] = [];
+        for (let y = 0; y <= 22; y++) {
+          const row = Array.from({ length: 10 }, (_, x) => prevPage.field.at(x, y)).join('');
+          if (row.replace(/_/g, '').length === 10) {
+            fullRows.push(y);
+          }
+        }
+        // Cleared rows are the lowest `clearedCount` full rows
+        fullRows.sort((a, b) => a - b);
+        const cleared = fullRows.slice(0, clearedCount);
+
+        // Insert cleared rows as garbage, working bottom-to-top to preserve positions
+        cleared.sort((a, b) => a - b);
+        for (const clearY of cleared) {
+          // Shift everything above clearY up by 1
+          for (let y = 22; y > clearY; y--) {
+            for (let x = 0; x < 10; x++) {
+              field.set(x, y, field.at(x, y - 1));
+            }
+          }
+          // Insert garbage row at clearY
+          for (let x = 0; x < 10; x++) {
+            field.set(x, clearY, 'X');
+          }
+        }
       }
-      allPages.push({ field: bestPage.field, comment });
+
+      allPages.push({ field, comment });
     }
     if (allPages.length === 0) return null;
     return encoder.encode(allPages);
