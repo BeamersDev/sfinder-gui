@@ -92,8 +92,12 @@ jobs:
       - name: Package portable (macOS)
         if: runner.os == 'macOS'
         run: |
-          cd $BUNDLE_DIR/macos
-          tar -czf ../../../../sfinder-gui-macos-portable.tar.gz *.app
+          APP=$(find $BUNDLE_DIR -name "*.app" -type d | head -1)
+          if [ -d "$APP" ]; then
+            tar -czf sfinder-gui-portable-macos.tar.gz -C "$(dirname "$APP")" "$(basename "$APP")"
+          else
+            echo "No .app found, skipping portable"
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
