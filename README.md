@@ -28,11 +28,9 @@ cd sfinder-gui
 
 # Install frontend dependencies
 npm install
-
-# Copy sfinder.jar into the project
-mkdir -p src-tauri/binaries
-cp /path/to/sfinder.jar src-tauri/binaries/
 ```
+
+Place `sfinder.jar` anywhere and configure its path in **Settings**, or place it at `src-tauri/binaries/sfinder.jar` for auto-discovery.
 
 ## Development
 
