@@ -193,18 +193,15 @@ function combineFumens(items: { fumen: string; coverage: number }[], totalPatter
       const pct = (item.coverage / totalPatterns * 100).toFixed(2);
       const comment = `Covered patterns(${item.coverage}/${totalPatterns}) (${pct}%)`;
       const pages = decoder.decode(item.fumen.startsWith('v115@') ? item.fumen : `v115@${item.fumen}`);
-      // Find last non-empty page (before line clears make it empty)
-      let finalPage = pages[pages.length - 1];
-      for (let i = pages.length - 1; i >= 0; i--) {
-        const fieldStr = pages[i].field.str();
-        if (fieldStr.replace(/_/g, '').length > 0) {
-          finalPage = pages[i];
-          break;
+      // Reconstruct final field: apply all operations + clear lines
+      const field = pages[0].field.copy();
+      for (let i = 1; i < pages.length; i++) {
+        const op = pages[i - 1].operation;
+        if (op) {
+          try { field.fill(op); field.clearLine(); } catch {/* skip */}
         }
       }
-      if (finalPage) {
-        allPages.push({ field: finalPage.field, comment });
-      }
+      allPages.push({ field, comment });
     }
     if (allPages.length === 0) return null;
     return encoder.encode(allPages);
