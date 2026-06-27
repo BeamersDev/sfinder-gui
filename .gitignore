@@ -1,0 +1,8 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/binaries/
+output/
+*.log
+.DS_Store
+solution-finder-1.43/

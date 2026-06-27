@@ -1,0 +1,38 @@
+{
+  "identifier": "default",
+  "description": "Default permissions for sfinder-gui",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-create-webview-window",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "java",
+          "cmd": "java",
+          "args": true
+        }
+      ]
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "java",
+          "cmd": "java",
+          "args": true
+        }
+      ]
+    },
+    "shell:allow-stdin-write",
+    "shell:allow-open",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
+    "fs:allow-exists",
+    "dialog:allow-open",
+    "dialog:allow-save"
+  ]
+}

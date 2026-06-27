@@ -1,0 +1,121 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --color-background: oklch(0.145 0 0);
+  --color-foreground: oklch(0.95 0 0);
+  --color-card: oklch(0.18 0 0);
+  --color-card-foreground: oklch(0.95 0 0);
+  --color-popover: oklch(0.18 0 0);
+  --color-popover-foreground: oklch(0.95 0 0);
+  --color-primary: oklch(0.65 0.2 250);
+  --color-primary-foreground: oklch(0.98 0 0);
+  --color-secondary: oklch(0.25 0 0);
+  --color-secondary-foreground: oklch(0.85 0 0);
+  --color-muted: oklch(0.25 0 0);
+  --color-muted-foreground: oklch(0.55 0 0);
+  --color-accent: oklch(0.25 0 0);
+  --color-accent-foreground: oklch(0.85 0 0);
+  --color-destructive: oklch(0.55 0.2 25);
+  --color-destructive-foreground: oklch(0.98 0 0);
+  --color-border: oklch(0.28 0 0);
+  --color-input: oklch(0.28 0 0);
+  --color-ring: oklch(0.65 0.2 250);
+  --radius: 0.5rem;
+}
+
+/* Light theme variant */
+html.light {
+  --color-background: oklch(0.98 0 0);
+  --color-foreground: oklch(0.145 0 0);
+  --color-card: oklch(1 0 0);
+  --color-card-foreground: oklch(0.145 0 0);
+  --color-popover: oklch(1 0 0);
+  --color-popover-foreground: oklch(0.145 0 0);
+  --color-primary: oklch(0.55 0.2 250);
+  --color-primary-foreground: oklch(0.98 0 0);
+  --color-secondary: oklch(0.95 0 0);
+  --color-secondary-foreground: oklch(0.25 0 0);
+  --color-muted: oklch(0.95 0 0);
+  --color-muted-foreground: oklch(0.45 0 0);
+  --color-accent: oklch(0.95 0 0);
+  --color-accent-foreground: oklch(0.25 0 0);
+  --color-destructive: oklch(0.5 0.2 25);
+  --color-destructive-foreground: oklch(0.98 0 0);
+  --color-border: oklch(0.85 0 0);
+  --color-input: oklch(0.85 0 0);
+  --color-ring: oklch(0.55 0.2 250);
+  --piece-empty: #e0e0e0;
+}
+
+/* System: follow OS light preference when theme is 'system' */
+@media (prefers-color-scheme: light) {
+  html:not(.light):not(.dark) {
+    --color-background: oklch(0.98 0 0);
+    --color-foreground: oklch(0.145 0 0);
+    --color-card: oklch(1 0 0);
+    --color-card-foreground: oklch(0.145 0 0);
+    --color-popover: oklch(1 0 0);
+    --color-popover-foreground: oklch(0.145 0 0);
+    --color-primary: oklch(0.55 0.2 250);
+    --color-primary-foreground: oklch(0.98 0 0);
+    --color-secondary: oklch(0.95 0 0);
+    --color-secondary-foreground: oklch(0.25 0 0);
+    --color-muted: oklch(0.95 0 0);
+    --color-muted-foreground: oklch(0.45 0 0);
+    --color-accent: oklch(0.95 0 0);
+    --color-accent-foreground: oklch(0.25 0 0);
+    --color-destructive: oklch(0.5 0.2 25);
+    --color-destructive-foreground: oklch(0.98 0 0);
+    --color-border: oklch(0.85 0 0);
+    --color-input: oklch(0.85 0 0);
+    --color-ring: oklch(0.55 0.2 250);
+    --piece-empty: #e0e0e0;
+  }
+}
+
+/* Tetris piece colors */
+:root {
+  --piece-i: #00f0f0;
+  --piece-o: #f0f000;
+  --piece-t: #a000f0;
+  --piece-s: #00f000;
+  --piece-z: #f00000;
+  --piece-l: #f0a000;
+  --piece-j: #0000f0;
+  --piece-x: #808080;
+  --piece-empty: #1a1a2e;
+
+  --cell-size: 28px;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
+#root {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-muted);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-muted-foreground);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.65 0 0);
+}
