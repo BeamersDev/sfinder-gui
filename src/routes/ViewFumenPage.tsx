@@ -80,15 +80,6 @@ export default function ViewFumenPage() {
 
           {/* Field grid + info */}
           <div className="flex flex-col items-center gap-2">
-            {/* Operation info */}
-            <div className="text-center h-8">
-              {pageOperation && (
-                <span className="text-sm font-mono text-primary">
-                  {pageOperation.type}-{pageOperation.rotation} @ ({pageOperation.x},{pageOperation.y})
-                </span>
-              )}
-            </div>
-
             <div className="border border-border rounded-lg overflow-hidden">
               <FieldGrid highlightedCells={highlightedCells} />
             </div>
