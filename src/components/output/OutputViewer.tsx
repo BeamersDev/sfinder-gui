@@ -174,10 +174,27 @@ function PathSummary({ total, minimal, allFumen, minFumen, onView, t }: { total:
 
 type TabId = 'summary' | 'solutions' | 'stdout' | 'csv' | 'stderr';
 
-function PathCsvSummary({ rows, t }: { rows: { fumen: string; coverage: number; used: string }[]; t: (k: string) => string }) {
+function parseStdoutCoverage(stdout: string): { pct: string; fraction: string } | null {
+  // Match: success = 100.00% (10080/10080) or similar
+  const m = stdout.match(/(\d+\.?\d*)\s*%\s*\((\d+)\s*\/\s*(\d+)\)/);
+  if (m) return { pct: `${m[1]}%`, fraction: `${m[2]}/${m[3]}` };
+  // Match: 84.64% (711/840)
+  const m2 = stdout.match(/(\d+\.?\d*)\s*%\s*\((\d+)\/(\d+)\)/);
+  if (m2) return { pct: `${m2[1]}%`, fraction: `${m2[2]}/${m2[3]}` };
+  return null;
+}
+
+function PathCsvSummary({ rows, t, stdout }: { rows: { fumen: string; coverage: number; used: string }[]; t: (k: string) => string; stdout: string }) {
+  const cov = parseStdoutCoverage(stdout);
   const maxPatterns = rows.length > 0 ? rows[0].coverage : 0;
   return (
     <div className="space-y-4">
+      {cov && (
+        <div className="rounded border border-primary/30 bg-primary/5 p-4 text-center">
+          <div className="text-4xl font-bold text-primary">{cov.pct}</div>
+          <div className="text-xs text-muted-foreground mt-1">{cov.fraction} sequences successful</div>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded border border-border bg-background p-4 text-center">
           <div className="text-3xl font-bold text-primary">{rows.length}</div>
@@ -384,7 +401,7 @@ export default function OutputViewer({ output, command }: OutputViewerProps) {
           <PercentDisplay stdout={output.stdout} />
         )}
         {!failed && activeTab === 'summary' && command === 'path' && (
-          <PathCsvSummary rows={pathRows} t={t} />
+          <PathCsvSummary rows={pathRows} t={t} stdout={output.stdout} />
         )}
         {!failed && activeTab === 'summary' && command !== 'percent' && command !== 'path' && (
           <PathSummary total={unique.length + minimal.length} minimal={minimal.length} allFumen={allFumen} minFumen={minimalFumen} onView={handleView} t={t} />
