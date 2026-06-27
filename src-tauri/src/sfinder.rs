@@ -142,13 +142,12 @@ pub fn compute_path_coverage(csv_path: &str) -> Vec<PathResultEntry> {
     };
     eprintln!("[DEBUG] read {} bytes", content.len());
 
-    // fumen → (total_coverage, used_pieces)
+    // fumen → (pattern_count, used_pieces)
     let mut map: HashMap<String, (u32, String)> = HashMap::new();
 
     for line in content.lines().skip(1) {
         let cols: Vec<&str> = line.split(',').collect();
         if cols.len() < 5 { continue; }
-        let coverage: u32 = cols[1].trim().parse().unwrap_or(0);
         let used = cols[2].trim().to_string();
         let fumen_str = cols[4].trim();
         if fumen_str.is_empty() { continue; }
@@ -157,7 +156,7 @@ pub fn compute_path_coverage(csv_path: &str) -> Vec<PathResultEntry> {
             let fumen = fumen.trim();
             if fumen.is_empty() { continue; }
             let entry = map.entry(fumen.to_string()).or_insert((0, used.clone()));
-            entry.0 += coverage;
+            entry.0 += 1; // count patterns this fumen appears in
             if !used.is_empty() {
                 entry.1 = used.clone();
             }
@@ -168,7 +167,7 @@ pub fn compute_path_coverage(csv_path: &str) -> Vec<PathResultEntry> {
         .map(|(fumen, (coverage, used))| PathResultEntry { fumen, coverage, used })
         .collect();
     results.sort_by(|a, b| b.coverage.cmp(&a.coverage));
-    eprintln!("[DEBUG] computed {} path results, top coverage: {}",
+    eprintln!("[DEBUG] computed {} path results, top patterns: {}",
         results.len(),
         results.first().map(|r| r.coverage).unwrap_or(0));
     results
