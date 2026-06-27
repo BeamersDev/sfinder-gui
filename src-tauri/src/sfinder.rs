@@ -256,6 +256,7 @@ pub async fn execute_sfinder(
     let mut full_args = vec!["-jar".to_string(), jar_path.clone()];
     full_args.extend(sfinder_args.clone());
     let command_line = format!("{} {}", java_exe, full_args.join(" "));
+    eprintln!("[DEBUG] execute_sfinder: {}", command_line);
 
     // Spawn process
     let (mut rx, child) = app
@@ -283,13 +284,15 @@ pub async fn execute_sfinder(
             CommandEvent::Terminated(payload) => {
                 state.take_child();
                 let output_files = find_output_files(config);
+                eprintln!("[DEBUG] execute_sfinder terminated: command={}, output_files={:?}", config.command, output_files);
                 let path_results = if config.command == "path" {
-                    output_files.iter().find(|f| f.ends_with(".csv"))
-                        .map(|f| compute_path_coverage(f))
-                        .unwrap_or_default()
+                    let csv_file = output_files.iter().find(|f| f.ends_with(".csv"));
+                    eprintln!("[DEBUG] path command, csv_file={:?}", csv_file);
+                    csv_file.map(|f| compute_path_coverage(f)).unwrap_or_default()
                 } else {
                     vec![]
                 };
+                eprintln!("[DEBUG] path_results count: {}", path_results.len());
                 let path_results = if path_results.is_empty() { None } else { Some(path_results) };
 
                 return Ok(SfinderOutput {
