@@ -42,8 +42,10 @@ jobs:
       - name: Download sfinder.jar
         shell: bash
         run: |
+          gh release download v1.43 -R knewjade/solution-finder -p "solution-finder-1.43.zip"
+          unzip -o solution-finder-1.43.zip -d /tmp/sfinder
           mkdir -p src-tauri/binaries
-          gh release download v1.43 -R knewjade/solution-finder -p "sfinder.jar" -O src-tauri/binaries/sfinder.jar
+          cp /tmp/sfinder/sfinder.jar src-tauri/binaries/sfinder.jar
           ls -lh src-tauri/binaries/sfinder.jar
         env:
           GH_TOKEN: ${{ github.token }}
