@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useFumenStore } from '@/stores/fumenStore';
 import FieldGrid from '@/components/fumen/FieldGrid';
 import FumenToolbar from '@/components/fumen/FumenToolbar';
 import PageNavigator from '@/components/fumen/PageNavigator';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useT } from '@/i18n/useTranslation';
+import { Mino } from 'tetris-fumen';
 
 export default function ViewFumenPage() {
   const decodeFumen = useFumenStore((s) => s.decodeFumen);
@@ -32,10 +33,22 @@ export default function ViewFumenPage() {
   const t = useT();
   const total = pages.length;
   const currentPage = pages[currentPageIndex];
-  // Show the operation that produced the current field (from the previous page)
-  const prevPage = currentPageIndex > 0 ? pages[currentPageIndex - 1] : null;
-  const operation = prevPage?.operation;
+  const pageOperation = currentPage?.operation;
   const comment = currentPage?.comment;
+
+  // Compute highlighted cells for the operation on this page
+  const highlightedCells = useMemo(() => {
+    if (!pageOperation) return new Set<string>();
+    try {
+      const m = new Mino(
+        pageOperation.type as any,
+        pageOperation.rotation as any,
+        pageOperation.x,
+        pageOperation.y,
+      );
+      return new Set(m.positions().map((p: { x: number; y: number }) => `${p.x},${p.y}`));
+    } catch { return new Set<string>(); }
+  }, [pageOperation]);
   const isAllSolutions = total > 5;
 
   return (
@@ -69,15 +82,15 @@ export default function ViewFumenPage() {
           <div className="flex flex-col items-center gap-2">
             {/* Operation info */}
             <div className="text-center h-8">
-              {operation && (
+              {pageOperation && (
                 <span className="text-sm font-mono text-primary">
-                  {operation.type}-{operation.rotation} @ ({operation.x},{operation.y})
+                  {pageOperation.type}-{pageOperation.rotation} @ ({pageOperation.x},{pageOperation.y})
                 </span>
               )}
             </div>
 
             <div className="border border-border rounded-lg overflow-hidden">
-              <FieldGrid />
+              <FieldGrid highlightedCells={highlightedCells} />
             </div>
 
             {/* Comment */}

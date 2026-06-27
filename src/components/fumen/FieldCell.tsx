@@ -40,7 +40,7 @@ export default function FieldCell({
         relative flex items-center justify-center shrink-0 select-none touch-none
         border border-muted-foreground/25 text-[10px] font-bold
         hover:brightness-125 cursor-crosshair transition-[filter]
-        ${isSelected ? 'ring-1 ring-primary ring-inset z-10' : ''}
+        ${isSelected ? 'ring-2 ring-yellow-400 ring-inset z-10 brightness-125 scale-105' : ''}
       `}
       style={{ width: cellSize, height: cellSize, backgroundColor: color, color: '#000' }}
       onPointerDown={(e) => { e.preventDefault(); onPointerDown(e); }}

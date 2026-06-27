@@ -8,9 +8,10 @@ const COLS = 10;
 
 interface FieldGridProps {
   visibleRows?: number;
+  highlightedCells?: Set<string>;
 }
 
-export default function FieldGrid({ visibleRows }: FieldGridProps) {
+export default function FieldGrid({ visibleRows, highlightedCells }: FieldGridProps) {
   const pages = useFumenStore((s) => s.pages);
   const currentPageIndex = useFumenStore((s) => s.currentPageIndex);
   const selectedTool = useFumenStore((s) => s.selectedTool);
@@ -135,7 +136,7 @@ export default function FieldGrid({ visibleRows }: FieldGridProps) {
                 y={row.y}
                 onPointerDown={(e) => handlePointerDown(cell.x, row.y, e)}
                 onPointerEnter={(e) => handlePointerEnter(cell.x, row.y, e)}
-                isSelected={false}
+                isSelected={highlightedCells?.has(`${cell.x},${row.y}`) ?? false}
               />
             ))}
             <div
