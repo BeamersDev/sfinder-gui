@@ -49,6 +49,14 @@ jobs:
 
       - run: npm ci
 
+      - name: Download sfinder.jar
+        shell: bash
+        run: |
+          curl -L -o /tmp/sfinder.zip https://github.com/knewjade/solution-finder/releases/download/v1.43/sfinder.zip
+          unzip -o /tmp/sfinder.zip -d /tmp/sfinder
+          mkdir -p src-tauri/binaries
+          cp /tmp/sfinder/sfinder.jar src-tauri/binaries/sfinder.jar
+
       - name: Build Tauri
         shell: bash
         run: |
