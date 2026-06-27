@@ -48,12 +48,19 @@ export interface SfinderCommandConfig {
 }
 
 // --- Output from Rust backend ---
+export interface PathResultEntry {
+  fumen: string;
+  coverage: number;
+  used: string;
+}
+
 export interface SfinderOutput {
   stdout: string;
   stderr: string;
   exitCode: number;
   outputFiles: string[];
   commandLine: string;
+  pathResults?: PathResultEntry[];
 }
 
 // --- Command execution state ---

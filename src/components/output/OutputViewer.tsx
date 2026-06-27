@@ -174,29 +174,28 @@ function PathSummary({ total, minimal, allFumen, minFumen, onView, t }: { total:
 
 type TabId = 'summary' | 'solutions' | 'stdout' | 'csv' | 'stderr';
 
-function PathCsvSummary({ rows, t, onView }: { rows: CsvPathRow[]; t: (k: string) => string; onView: (f: string) => void }) {
-  const totalSolutions = rows.reduce((sum, r) => sum + r.coverage, 0);
-  const withSolutions = rows.filter((r) => r.coverage > 0).length;
+function PathCsvSummary({ rows, t }: { rows: { fumen: string; coverage: number; used: string }[]; t: (k: string) => string }) {
+  const totalCoverage = rows.reduce((sum, r) => sum + r.coverage, 0);
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded border border-border bg-background p-4 text-center">
           <div className="text-3xl font-bold text-primary">{rows.length}</div>
-          <div className="text-[11px] text-muted-foreground mt-1">Patterns</div>
+          <div className="text-[11px] text-muted-foreground mt-1">Unique Solutions</div>
         </div>
         <div className="rounded border border-border bg-background p-4 text-center">
-          <div className="text-3xl font-bold text-primary">{withSolutions}</div>
-          <div className="text-[11px] text-muted-foreground mt-1">With Solutions</div>
+          <div className="text-3xl font-bold text-primary">{totalCoverage}</div>
+          <div className="text-[11px] text-muted-foreground mt-1">Total Coverage</div>
         </div>
       </div>
     </div>
   );
 }
 
-function PathCsvTable({ rows, onView, t }: { rows: CsvPathRow[]; t: (k: string) => string; onView: (f: string) => void }) {
+function PathCsvTable({ rows, onView, t }: { rows: { fumen: string; coverage: number; used: string }[]; t: (k: string) => string; onView: (f: string) => void }) {
   const [filter, setFilter] = useState('');
   const filtered = useMemo(
-    () => filter ? rows.filter((r) => r.pattern.includes(filter.toUpperCase())) : rows,
+    () => filter ? rows.filter((r) => r.used.toUpperCase().includes(filter.toUpperCase())) : rows,
     [rows, filter],
   );
   return (
@@ -212,8 +211,7 @@ function PathCsvTable({ rows, onView, t }: { rows: CsvPathRow[]; t: (k: string) 
         <table className="w-full text-xs">
           <thead className="bg-secondary/50 sticky top-0">
             <tr>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Pattern</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground w-16">Cov</th>
+              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground w-16">Coverage</th>
               <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Used</th>
               <th className="px-2 py-1.5 text-center font-medium text-muted-foreground w-16">View</th>
             </tr>
@@ -221,18 +219,15 @@ function PathCsvTable({ rows, onView, t }: { rows: CsvPathRow[]; t: (k: string) 
           <tbody className="divide-y divide-border">
             {filtered.map((row, i) => (
               <tr key={i} className="hover:bg-secondary/30">
-                <td className="px-2 py-1 font-mono">{row.pattern}</td>
                 <td className="px-2 py-1 text-right">
-                  <span className={row.coverage > 0 ? 'text-green-400' : 'text-muted-foreground'}>{row.coverage}</span>
+                  <span className="text-green-400 font-bold">{row.coverage}</span>
                 </td>
                 <td className="px-2 py-1 font-mono text-muted-foreground">{row.used || '-'}</td>
                 <td className="px-2 py-1 text-center">
-                  {row.fumens.length > 0 && (
-                    <button onClick={() => onView(row.fumens[0])}
-                      className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25 font-medium">
-                      {t('output.view')}
-                    </button>
-                  )}
+                  <button onClick={() => onView(row.fumen)}
+                    className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25 font-medium">
+                    {t('output.view')}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -263,13 +258,12 @@ export default function OutputViewer({ output, command }: OutputViewerProps) {
   }, [output.outputFiles]);
 
   const htmlOutput = Object.values(fileContents).find((c) => c.length > 50) || '';
-  // CSV: prefer .csv file content, fallback to stdout
-  const csvContent = Object.entries(fileContents).find(([path]) => path.endsWith('.csv'))?.[1]
-    || Object.values(fileContents).find((c) => c.includes(','))
-    || output.stdout
-    || '';
   const { unique, minimal, allFumen, minimalFumen } = useMemo(() => parseSolutions(htmlOutput), [htmlOutput]);
-  const csvRows = useMemo(() => command === 'path' ? parsePathCsv(csvContent) : [], [command, csvContent]);
+  const pathRows = (output.pathResults || []).map((r) => ({
+    fumen: r.fumen,
+    coverage: r.coverage,
+    used: r.used,
+  }));
 
   const handleView = (fumen: string) => {
     try {
@@ -348,9 +342,9 @@ export default function OutputViewer({ output, command }: OutputViewerProps) {
 
   if (failed) {
     tabs.push({ id: 'stderr', label: t('output.stderr') });
-  } else if (command === 'path' && csvRows.length > 0) {
+  } else if (command === 'path' && pathRows.length > 0) {
     tabs.push({ id: 'summary', label: t('output.summary') });
-    tabs.push({ id: 'solutions', label: `${t('output.solutions')} (${csvRows.length})` });
+    tabs.push({ id: 'solutions', label: `${t('output.solutions')} (${pathRows.length})` });
     tabs.push({ id: 'csv', label: 'CSV' });
     if (output.stderr) tabs.push({ id: 'stderr', label: t('output.stderr') });
   } else if (command === 'percent') {
@@ -391,19 +385,19 @@ export default function OutputViewer({ output, command }: OutputViewerProps) {
           <PercentDisplay stdout={output.stdout} />
         )}
         {!failed && activeTab === 'summary' && command === 'path' && (
-          <PathCsvSummary rows={csvRows} t={t} onView={handleView} />
+          <PathCsvSummary rows={pathRows} t={t} />
         )}
         {!failed && activeTab === 'summary' && command !== 'percent' && command !== 'path' && (
           <PathSummary total={unique.length + minimal.length} minimal={minimal.length} allFumen={allFumen} minFumen={minimalFumen} onView={handleView} t={t} />
         )}
         {!failed && activeTab === 'solutions' && command === 'path' && (
-          <PathCsvTable rows={csvRows} onView={handleView} t={t} />
+          <PathCsvTable rows={pathRows} onView={handleView} t={t} />
         )}
         {!failed && activeTab === 'solutions' && command !== 'path' && (
           <SolutionTable solutions={[...unique, ...minimal]} label="all" />
         )}
         {!failed && activeTab === 'stdout' && <RawOutput text={output.stdout || '(empty)'} />}
-        {!failed && activeTab === 'csv' && <RawOutput text={csvContent || htmlOutput} />}
+        {!failed && activeTab === 'csv' && <RawOutput text={htmlOutput || output.stdout || '(empty)'} />}
         {!failed && activeTab === 'stderr' && <RawOutput text={output.stderr || '(empty)'} />}
       </div>
 

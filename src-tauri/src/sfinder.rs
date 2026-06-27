@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
+use crate::commands::PathResultEntry;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 
@@ -130,6 +132,42 @@ fn build_cli_args(config: &SfinderCommandConfig) -> Vec<String> {
     args
 }
 
+/// Parse path CSV and compute coverage per fumen
+/// CSV format: pattern,coverage,used,unused,fumen(semicolon-separated)
+pub fn compute_path_coverage(csv_path: &str) -> Vec<PathResultEntry> {
+    let Ok(content) = std::fs::read_to_string(csv_path) else {
+        return vec![];
+    };
+
+    // fumen → (total_coverage, used_pieces)
+    let mut map: HashMap<String, (u32, String)> = HashMap::new();
+
+    for line in content.lines().skip(1) {
+        let cols: Vec<&str> = line.split(',').collect();
+        if cols.len() < 5 { continue; }
+        let coverage: u32 = cols[1].trim().parse().unwrap_or(0);
+        let used = cols[2].trim().to_string();
+        let fumen_str = cols[4].trim();
+        if fumen_str.is_empty() { continue; }
+
+        for fumen in fumen_str.split(';') {
+            let fumen = fumen.trim();
+            if fumen.is_empty() { continue; }
+            let entry = map.entry(fumen.to_string()).or_insert((0, used.clone()));
+            entry.0 += coverage;
+            if !used.is_empty() {
+                entry.1 = used.clone();
+            }
+        }
+    }
+
+    let mut results: Vec<PathResultEntry> = map.into_iter()
+        .map(|(fumen, (coverage, used))| PathResultEntry { fumen, coverage, used })
+        .collect();
+    results.sort_by(|a, b| b.coverage.cmp(&a.coverage));
+    results
+}
+
 fn resolve_output_dir(config: &SfinderCommandConfig) -> String {
     config.output_base.as_ref()
         .filter(|p| !p.is_empty())
@@ -239,6 +277,14 @@ pub async fn execute_sfinder(
             CommandEvent::Terminated(payload) => {
                 state.take_child();
                 let output_files = find_output_files(config);
+                let path_results = if config.command == "path" {
+                    output_files.iter().find(|f| f.ends_with(".csv"))
+                        .map(|f| compute_path_coverage(f))
+                        .unwrap_or_default()
+                } else {
+                    vec![]
+                };
+                let path_results = if path_results.is_empty() { None } else { Some(path_results) };
 
                 return Ok(SfinderOutput {
                     stdout,
@@ -246,6 +292,7 @@ pub async fn execute_sfinder(
                     exit_code: payload.code.unwrap_or(-1),
                     output_files,
                     command_line,
+                    path_results,
                 });
             }
             CommandEvent::Error(err) => {

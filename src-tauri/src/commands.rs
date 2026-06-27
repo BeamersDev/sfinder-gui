@@ -53,6 +53,13 @@ pub struct SfinderCommandConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PathResultEntry {
+    pub fumen: String,
+    pub coverage: u32,
+    pub used: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SfinderOutput {
     pub stdout: String,
     pub stderr: String,
@@ -62,6 +69,9 @@ pub struct SfinderOutput {
     pub output_files: Vec<String>,
     #[serde(rename = "commandLine")]
     pub command_line: String,
+    #[serde(rename = "pathResults")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path_results: Option<Vec<PathResultEntry>>,
 }
 
 // --- Commands ---
