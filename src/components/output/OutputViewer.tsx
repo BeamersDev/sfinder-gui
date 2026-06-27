@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import type { SfinderOutput } from '@/types/sfinder';
 import { invoke } from '@tauri-apps/api/core';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { decoder, encoder } from 'tetris-fumen';
 import RawOutput from './RawOutput';
 import PercentDisplay from './PercentDisplay';
 import { Search } from 'lucide-react';
@@ -184,8 +185,28 @@ function parseStdoutCoverage(stdout: string): { pct: string; fraction: string } 
   return null;
 }
 
-function PathCsvSummary({ rows, t, stdout, minimalCount }: { rows: { fumen: string; coverage: number; used: string }[]; t: (k: string) => string; stdout: string; minimalCount: number }) {
+/** Combine multiple fumen strings into a single multi-page fumen */
+function combineFumens(fumens: string[]): string | null {
+  try {
+    const allPages: any[] = [];
+    for (const fumen of fumens) {
+      const pages = decoder.decode(fumen.startsWith('v115@') ? fumen : `v115@${fumen}`);
+      for (const page of pages) {
+        allPages.push({ field: page.field });
+      }
+    }
+    if (allPages.length === 0) return null;
+    return encoder.encode(allPages);
+  } catch {
+    return null;
+  }
+}
+
+function PathCsvSummary({ rows, t, stdout, minimalRows, onView }: { rows: { fumen: string; coverage: number; used: string }[]; t: (k: string) => string; stdout: string; minimalRows: { fumen: string; coverage: number; used: string }[]; onView: (f: string) => void }) {
   const cov = parseStdoutCoverage(stdout);
+  const allCombined = useMemo(() => combineFumens(rows.map((r) => r.fumen)), [rows]);
+  const minimalCombined = useMemo(() => combineFumens(minimalRows.map((r) => r.fumen)), [minimalRows]);
+
   return (
     <div className="space-y-4">
       {cov && (
@@ -200,9 +221,23 @@ function PathCsvSummary({ rows, t, stdout, minimalCount }: { rows: { fumen: stri
           <div className="text-[11px] text-muted-foreground mt-1">Unique Solutions</div>
         </div>
         <div className="rounded border border-border bg-background p-4 text-center">
-          <div className="text-3xl font-bold text-primary">{minimalCount}</div>
+          <div className="text-3xl font-bold text-primary">{minimalRows.length}</div>
           <div className="text-[11px] text-muted-foreground mt-1">Minimal Solutions</div>
         </div>
+      </div>
+      <div className="space-y-2">
+        {allCombined && (
+          <button onClick={() => onView(allCombined!)}
+            className="w-full rounded-md bg-primary/15 px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary/25 transition-colors">
+            {t('output.viewAllSolutions')}
+          </button>
+        )}
+        {minimalCombined && (
+          <button onClick={() => onView(minimalCombined!)}
+            className="w-full rounded-md bg-primary/15 px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary/25 transition-colors">
+            {t('output.viewMinimalSolutions')}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -405,7 +440,7 @@ export default function OutputViewer({ output, command }: OutputViewerProps) {
           <PercentDisplay stdout={output.stdout} />
         )}
         {!failed && activeTab === 'summary' && command === 'path' && (
-          <PathCsvSummary rows={pathRows} t={t} stdout={output.stdout} minimalCount={strictMinimalRows.length || pathRows.length} />
+          <PathCsvSummary rows={pathRows} t={t} stdout={output.stdout} minimalRows={strictMinimalRows} onView={handleView} />
         )}
         {!failed && activeTab === 'summary' && command !== 'percent' && command !== 'path' && (
           <PathSummary total={unique.length + minimal.length} minimal={minimal.length} allFumen={allFumen} minFumen={minimalFumen} onView={handleView} t={t} />
