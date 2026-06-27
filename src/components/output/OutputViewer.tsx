@@ -185,6 +185,15 @@ function parseStdoutCoverage(stdout: string): { pct: string; fraction: string } 
   return null;
 }
 
+/** Find the lowest full row (10 blocks), or null if none */
+function findFullRow(field: any): number | null {
+  for (let y = 0; y <= 22; y++) {
+    const full = Array.from({ length: 10 }, (_, x) => field.at(x, y)).every((c: string) => c !== '_');
+    if (full) return y;
+  }
+  return null;
+}
+
 /** Combine multiple fumen solutions into a single multi-page fumen with coverage comments */
 function combineFumens(items: { fumen: string; coverage: number }[], totalPatterns: number): string | null {
   try {
@@ -193,40 +202,49 @@ function combineFumens(items: { fumen: string; coverage: number }[], totalPatter
       const pct = (item.coverage / totalPatterns * 100).toFixed(2);
       const comment = `Covered patterns(${item.coverage}/${totalPatterns}) (${pct}%)`;
       const pages = decoder.decode(item.fumen.startsWith('v115@') ? item.fumen : `v115@${item.fumen}`);
-      // Reconstruct peak field: undo line clears backwards
-      const field = pages[pages.length - 1].field.copy();
+      // Reconstruct peak field: simulate each piece placement, detect line clears
+      // Start from initial field, apply operations, track cleared rows
+      const field = pages[0].field.copy();
+      const clearedRows: { y: number; content: string }[] = [];
 
-      for (let pi = pages.length - 1; pi >= 1; pi--) {
-        const prevPage = pages[pi - 1];
-        const currPage = pages[pi];
+      for (let pi = 1; pi < pages.length; pi++) {
+        const op = pages[pi - 1].operation;
+        if (!op) continue;
 
-        // Build sets of full row strings for comparison
-        const prevFullRows: { y: number; content: string }[] = [];
-        const currRowStrings = new Set<string>();
-        for (let y = 0; y <= 22; y++) {
-          const row = Array.from({ length: 10 }, (_, x) => prevPage.field.at(x, y)).join('');
-          if (row.replace(/_/g, '').length === 10) {
-            prevFullRows.push({ y, content: row });
-          }
-          const crow = Array.from({ length: 10 }, (_, x) => currPage.field.at(x, y)).join('');
-          currRowStrings.add(crow);
-        }
+        // Place the piece
+        try { field.fill(op); } catch { continue; }
 
-        // Cleared rows are full rows in prev whose content is NOT in curr
-        const cleared = prevFullRows.filter((r) => !currRowStrings.has(r.content));
-        cleared.sort((a, b) => a.y - b.y); // bottom-to-top
-
-        for (const { y: clearY, content } of cleared) {
-          // Shift everything at clearY and above UP by 1
-          for (let y = 22; y > clearY; y--) {
+        // Check for line clears — process one at a time, bottom first
+        let found: number | null;
+        while ((found = findFullRow(field)) !== null) {
+          const clearY = found;
+          const content = Array.from({ length: 10 }, (_, x) => field.at(x, clearY)).join('');
+          clearedRows.push({ y: clearY, content });
+          // Shift everything above clearY down by 1 (simulate clearLine)
+          for (let y = clearY; y < 22; y++) {
             for (let x = 0; x < 10; x++) {
-              field.set(x, y, field.at(x, y - 1));
+              field.set(x, y, field.at(x, y + 1));
             }
           }
-          // Insert the cleared row's original content
+          // Clear the top row
+          for (let x = 0; x < 10; x++) field.set(x, 22, '_');
+        }
+      }
+
+      // Now undo the clears backwards to reconstruct peak field
+      // Start from the field AFTER all operations and clears (field is already at this state)
+      // Insert cleared rows in reverse order
+      for (let i = clearedRows.length - 1; i >= 0; i--) {
+        const { y: clearY, content } = clearedRows[i];
+        // Shift everything at clearY and above UP by 1
+        for (let y = 22; y > clearY; y--) {
           for (let x = 0; x < 10; x++) {
-            field.set(x, clearY, content[x] as any);
+            field.set(x, y, field.at(x, y - 1));
           }
+        }
+        // Insert the cleared row content
+        for (let x = 0; x < 10; x++) {
+          field.set(x, clearY, content[x] as any);
         }
       }
 
