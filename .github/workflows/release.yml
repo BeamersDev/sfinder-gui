@@ -67,6 +67,25 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
+      - name: Package portable (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir = "src-tauri/target/${{ matrix.target }}/release/bundle/nsis"
+          Compress-Archive -Path "$dir/*" -DestinationPath "sfinder-gui-portable-windows.zip"
+
+      - name: Package portable (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cd src-tauri/target/${{ matrix.target }}/release/bundle/appimage
+          tar -czf ../../../../../sfinder-gui-portable-linux.tar.gz *
+
+      - name: Package portable (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd src-tauri/target/${{ matrix.target }}/release/bundle/dmg
+          tar -czf ../../../../../sfinder-gui-portable-macos.tar.gz *
+
       - name: Upload artifacts
         uses: softprops/action-gh-release@v2
         with:
@@ -77,6 +96,9 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm
             src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
+            sfinder-gui-portable-windows.zip
+            sfinder-gui-portable-linux.tar.gz
+            sfinder-gui-portable-macos.tar.gz
           generate_release_notes: true
           fail_on_unmatched_files: false
         env:
