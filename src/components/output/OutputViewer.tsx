@@ -193,11 +193,10 @@ function combineFumens(items: { fumen: string; coverage: number }[], totalPatter
       const pct = (item.coverage / totalPatterns * 100).toFixed(2);
       const comment = `Covered patterns(${item.coverage}/${totalPatterns}) (${pct}%)`;
       const pages = decoder.decode(item.fumen.startsWith('v115@') ? item.fumen : `v115@${item.fumen}`);
-      // Reconstruct peak field by inserting cleared lines backwards
-      // Algorithm: start from final field, detect clears at each step, insert garbage rows
+      // Reconstruct peak field: undo line clears backwards
+      // For each step: detect cleared rows, insert their CONTENT (from prev page), shift above rows up
       const field = pages[pages.length - 1].field.copy();
 
-      // Process pages backwards to undo line clears
       for (let pi = pages.length - 1; pi >= 1; pi--) {
         const prevPage = pages[pi - 1];
         const currPage = pages[pi];
@@ -206,6 +205,7 @@ function combineFumens(items: { fumen: string; coverage: number }[], totalPatter
 
         // Lines cleared in this step
         const clearedCount = Math.max(0, (prevBlocks - currBlocks) / 10) | 0;
+        if (clearedCount === 0) continue;
 
         // Find which rows were full in previous page (these were cleared)
         const fullRows: number[] = [];
@@ -215,22 +215,21 @@ function combineFumens(items: { fumen: string; coverage: number }[], totalPatter
             fullRows.push(y);
           }
         }
-        // Cleared rows are the lowest `clearedCount` full rows
         fullRows.sort((a, b) => a - b);
         const cleared = fullRows.slice(0, clearedCount);
 
-        // Insert cleared rows as garbage, working bottom-to-top to preserve positions
+        // Insert cleared rows with their original content, bottom-to-top
         cleared.sort((a, b) => a - b);
         for (const clearY of cleared) {
-          // Shift everything above clearY up by 1
+          // Shift everything at clearY and above UP by 1
           for (let y = 22; y > clearY; y--) {
             for (let x = 0; x < 10; x++) {
               field.set(x, y, field.at(x, y - 1));
             }
           }
-          // Insert garbage row at clearY
+          // Insert the ORIGINAL cleared row content from the previous page
           for (let x = 0; x < 10; x++) {
-            field.set(x, clearY, 'X');
+            field.set(x, clearY, prevPage.field.at(x, clearY));
           }
         }
       }
