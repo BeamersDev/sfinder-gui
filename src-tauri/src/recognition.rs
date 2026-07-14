@@ -1,6 +1,4 @@
 use image::{RgbImage, codecs::jpeg::JpegEncoder};
-use imageproc::edges::canny;
-use imageproc::hough::{detect_lines, LineDetectionOptions};
 use screenshots::Screen;
 use std::io::Cursor;
 use std::collections::HashMap;
@@ -9,7 +7,6 @@ use base64::Engine;
 use serde::Serialize;
 
 /// Standard Tetris piece reference colors (R, G, B) in sRGB
-/// These are the canonical colors from the Tetris guideline
 const REFERENCE_COLORS: &[(u8, u8, u8, char)] = &[
     (0,   240, 240, 'I'),  // cyan
     (240, 240, 0,   'O'),  // yellow
@@ -21,185 +18,13 @@ const REFERENCE_COLORS: &[(u8, u8, u8, char)] = &[
     (128, 128, 128, 'X'),  // garbage (gray)
 ];
 
-/// Minimum votes for a Hough line to be accepted
-const VOTE_THRESHOLD: u32 = 80;
-
-/// Non-maxima suppression radius for Hough
-const SUPPRESSION_RADIUS: u32 = 4;
-
-/// Angle tolerance in degrees for classifying lines
-const ANGLE_TOLERANCE: u32 = 12;
-
-/// Minimum image dimension — very relaxed since we handle small selections
-const MIN_IMAGE_SIZE: u32 = 1;
-
-/// Color distance threshold — above this is treated as empty
-const COLOR_DISTANCE_THRESHOLD: f64 = 1.0;
-
 /// Expected number of columns in a Tetris board
 const NUM_COLS: usize = 10;
 
-/// Expected minimum number of rows
-const NUM_ROWS_MIN: usize = 1;
+/// Minimum HSL lightness for a cell to be considered "not empty"
+const MIN_LIGHTNESS: f64 = 25.0;
 
-/// Detect grid lines from edge image and classify into vertical/horizontal groups
-fn find_grid_lines(
-    _edges: &image::GrayImage,
-    img_width: u32,
-    img_height: u32,
-) -> Result<(Vec<f64>, Vec<f64>), String> {
-    let cell_w = img_width as f64 / NUM_COLS as f64;
-    let vertical_lines: Vec<f64> = (0..=NUM_COLS).map(|i| i as f64 * cell_w).collect();
-    let n_rows = (img_height as f64 / cell_w).ceil() as usize;
-    let n_rows = n_rows.max(1).min(40);
-    let cell_h = img_height as f64 / n_rows as f64;
-    let horizontal_lines: Vec<f64> = (0..=n_rows).map(|i| i as f64 * cell_h).collect();
-    Ok((vertical_lines, horizontal_lines))
-}
-
-/// Cluster nearby r values (within `tolerance`) by averaging them,
-/// then sort by position.
-fn cluster_and_sort(values: &[f64], tolerance: f64) -> Vec<f64> {
-    if values.is_empty() {
-        return Vec::new();
-    }
-
-    let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-    let mut clusters: Vec<Vec<f64>> = Vec::new();
-    for &v in &sorted {
-        if let Some(last) = clusters.last_mut() {
-            if (v - last[0]).abs() <= tolerance {
-                last.push(v);
-                continue;
-            }
-        }
-        clusters.push(vec![v]);
-    }
-
-    clusters
-        .iter()
-        .map(|c| c.iter().sum::<f64>() / c.len() as f64)
-        .collect()
-}
-
-/// Pick the best set of N equally-spaced lines from the candidates.
-/// If `target_n` is 0, finds the largest consistent set.
-fn pick_grid_lines(
-    candidates: &[f64],
-    target_n: usize,
-    max_spacing_variance: f64,
-) -> Result<Vec<f64>, String> {
-    if candidates.len() < 2 {
-        return Err("Not enough grid lines detected.".to_string());
-    }
-
-    // If we have exactly what we need, return it
-    if target_n > 0 && candidates.len() == target_n {
-        return Ok(candidates.to_vec());
-    }
-
-    // Try to find the most regular sub-grid by sliding window
-    // For vertical lines, we want exactly target_n lines
-    // For horizontal lines, we want the most consistent grid
-
-    if target_n > 0 {
-        // We need exactly target_n lines — find the best subset
-        // First try sliding window of size target_n
-        let mut best_score = f64::MAX;
-        let mut best_set: Option<&[f64]> = None;
-
-        if candidates.len() >= target_n {
-            for window in candidates.windows(target_n) {
-                let spacings: Vec<f64> = window.windows(2).map(|w| w[1] - w[0]).collect();
-                let mean = spacings.iter().sum::<f64>() / spacings.len() as f64;
-                let variance = spacings
-                    .iter()
-                    .map(|s| ((s - mean) / mean).abs())
-                    .sum::<f64>()
-                    / spacings.len() as f64;
-
-                // Prefer sets closer to the image center (board is usually centered)
-                let center_offset = (window[0] + window[target_n - 1]) / 2.0;
-
-                let score = variance + center_offset.abs() * 0.001;
-                if score < best_score {
-                    best_score = score;
-                    best_set = Some(window);
-                }
-            }
-        }
-
-        if let Some(set) = best_set {
-            return Ok(set.to_vec());
-        }
-        return Err(format!(
-            "Could not find {} consistent grid lines (found {} candidates)",
-            target_n,
-            candidates.len()
-        ));
-    } else {
-        // No target N — find the largest consistent set
-        // Compute all spacings, find median spacing, then filter lines
-        // that maintain consistent spacing
-        let mut best_set: Vec<f64> = candidates.to_vec();
-
-        // Filter out outliers by checking spacing consistency
-        if best_set.len() > 3 {
-            let spacings: Vec<f64> = best_set.windows(2).map(|w| w[1] - w[0]).collect();
-            let mean = spacings.iter().sum::<f64>() / spacings.len() as f64;
-
-            let mut filtered = Vec::new();
-            filtered.push(best_set[0]);
-            for i in 1..best_set.len() {
-                let gap = best_set[i] - best_set[i - 1];
-                if (gap - mean).abs() / mean <= max_spacing_variance {
-                    filtered.push(best_set[i]);
-                } else {
-                    // Try to skip one: if the next gap compensates, this might be a double-line
-                    if i + 1 < best_set.len() {
-                        let next_gap = best_set[i + 1] - best_set[i - 1];
-                        if (next_gap - mean).abs() / mean <= max_spacing_variance * 1.5 {
-                            filtered.push(best_set[i + 1]);
-                            continue;
-                        }
-                    }
-                }
-            }
-            if filtered.len() >= 2 {
-                best_set = filtered;
-            }
-        }
-
-        Ok(best_set)
-    }
-}
-
-/// Convert RGB to a perceptually-uniform luminance value for color comparison
-fn rgb_to_yuv(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
-    let r = r as f64 / 255.0;
-    let g = g as f64 / 255.0;
-    let b = b as f64 / 255.0;
-
-    let y = 0.299 * r + 0.587 * g + 0.114 * b;
-    let u = -0.168736 * r - 0.331264 * g + 0.5 * b;
-    let v = 0.5 * r - 0.418688 * g - 0.081312 * b;
-
-    (y, u, v)
-}
-
-/// Compute perceptual color distance in YUV space
-fn color_distance(c1: (u8, u8, u8), c2: (u8, u8, u8)) -> f64 {
-    let (y1, u1, v1) = rgb_to_yuv(c1.0, c1.1, c1.2);
-    let (y2, u2, v2) = rgb_to_yuv(c2.0, c2.1, c2.2);
-    let dy = y1 - y2;
-    let du = u1 - u2;
-    let dv = v1 - v2;
-    // Weight luminance more heavily for distinguishing pieces from background
-    (dy * dy * 2.0 + du * du + dv * dv).sqrt()
-}
-
+// ── Color utilities ──
 
 /// Convert RGB to HSL (H: 0-360, S: 0-100, L: 0-100)
 fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
@@ -222,126 +47,158 @@ fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
     (h, s, l)
 }
 
-/// Match a sampled cell color using HSL (four-tris style).
-fn match_piece_color(sampled: (u8, u8, u8), _bg_color: Option<(u8, u8, u8)>) -> char {
-    let (h, s, l) = rgb_to_hsl(sampled.0, sampled.1, sampled.2);
-    // Dark -> empty
-    if l < 30.0 {
-        return '_';
-    }
-    // Low saturation -> garbage or empty border
-    if s < 15.0 {
-        return if l > 40.0 { 'X' } else { '_' };
-    }
-    // Match by hue range (four-tris style)
-    match h as u32 {
-        0..=15 | 340..=360 => 'Z',  // red
-        16..=40 => 'L',             // orange
-        41..=70 => 'O',             // yellow
-        71..=170 => 'S',            // green
-        171..=200 => 'I',           // cyan
-        201..=260 => 'J',           // blue
-        261..=339 => 'T',           // purple
-        _ => '_',
-    }
+/// Convert RGB to YUV for perceptual distance
+fn rgb_to_yuv(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
+    let r = r as f64 / 255.0;
+    let g = g as f64 / 255.0;
+    let b = b as f64 / 255.0;
+    let y = 0.299 * r + 0.587 * g + 0.114 * b;
+    let u = -0.168736 * r - 0.331264 * g + 0.5 * b;
+    let v = 0.5 * r - 0.418688 * g - 0.081312 * b;
+    (y, u, v)
 }
 
-/// Sample background color from empty cells at the top of the detected grid.
-fn sample_background(img: &image::RgbImage, rows: usize, cols: usize,
-    horizontal_lines: &[f64], vertical_lines: &[f64]) -> Option<(u8, u8, u8)> {
+fn color_distance(c1: (u8, u8, u8), c2: (u8, u8, u8)) -> f64 {
+    let (y1, u1, v1) = rgb_to_yuv(c1.0, c1.1, c1.2);
+    let (y2, u2, v2) = rgb_to_yuv(c2.0, c2.1, c2.2);
+    let dy = y1 - y2;
+    let du = u1 - u2;
+    let dv = v1 - v2;
+    (2.0 * dy * dy + du * du + dv * dv).sqrt()
+}
+
+// ── Board detection ──
+
+/// Find the pixel bounds of the actual Tetris board within the image.
+/// Scans inward from edges looking for non-dark (colored) cells.
+fn find_board_bounds(img: &RgbImage) -> (u32, u32, u32, u32) {
     let (w, h) = img.dimensions();
-    let mut r_sum = 0u64; let mut g_sum = 0u64; let mut b_sum = 0u64;
-    let mut count = 0u64;
+    let mut min_x = w;
+    let mut min_y = h;
+    let mut max_x = 0u32;
+    let mut max_y = 0u32;
 
-    let sample_rows = 3.min(rows);
-    let sample_cols = 5.min(cols);
-
-    for row in 0..sample_rows {
-        let y_top = horizontal_lines[row] as u32;
-        let y_bot = horizontal_lines[row + 1] as u32;
-        let y_center = ((y_top + y_bot) / 2).min(h - 1);
-        for col in 0..sample_cols {
-            let x_left = vertical_lines[col] as u32;
-            let x_right = vertical_lines[col + 1] as u32;
-            let x_center = ((x_left + x_right) / 2).min(w - 1);
-            let px = img.get_pixel(x_center, y_center);
-            let (y_val, _, _) = rgb_to_yuv(px[0], px[1], px[2]);
-            if y_val < 0.4 {
-                r_sum += px[0] as u64;
-                g_sum += px[1] as u64;
-                b_sum += px[2] as u64;
-                count += 1;
+    // Sample every 4th pixel for speed
+    for y in (0..h).step_by(4) {
+        for x in (0..w).step_by(4) {
+            let px = img.get_pixel(x, y);
+            let (_, _, l) = rgb_to_hsl(px[0], px[1], px[2]);
+            if l > MIN_LIGHTNESS {
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
             }
         }
     }
 
-    if count > 0 {
-        Some(((r_sum / count) as u8, (g_sum / count) as u8, (b_sum / count) as u8))
-    } else {
-        let px = img.get_pixel(5, 5);
-        Some((px[0], px[1], px[2]))
+    if max_x <= min_x || max_y <= min_y {
+        // No colored cells found — use whole image
+        return (0, 0, w, h);
     }
+
+    // Add a small margin (2px) to avoid cutting off edges
+    let margin = 2u32;
+    let x0 = min_x.saturating_sub(margin);
+    let y0 = min_y.saturating_sub(margin);
+    let x1 = (max_x + margin).min(w);
+    let y1 = (max_y + margin).min(h);
+    (x0, y0, x1, y1)
+}
+
+// ── Recognition ──
+
+/// Match a pixel color to a Tetris piece type.
+/// Uses YUV distance against reference colors (primary) + HSL hue check (secondary).
+fn match_piece_color(r: u8, g: u8, b: u8) -> char {
+    // Quick reject: very dark cells are empty
+    let (_, _, l) = rgb_to_hsl(r, g, b);
+    if l < MIN_LIGHTNESS {
+        return '_';
+    }
+
+    // Primary: YUV distance to reference colors
+    let mut best = '_';
+    let mut best_dist = f64::MAX;
+    for &(ref_r, ref_g, ref_b, pc) in REFERENCE_COLORS {
+        let d = color_distance((r, g, b), (ref_r, ref_g, ref_b));
+        if d < best_dist {
+            best_dist = d;
+            best = pc;
+        }
+    }
+
+    // Distance threshold: if too far from any reference, it's empty
+    if best_dist > 0.8 {
+        return '_';
+    }
+
+    // Secondary: verify with HSL that this makes sense
+    // (e.g. a dark gray pixel close to 'X' in YUV should still be empty)
+    if best == 'X' && l < 35.0 {
+        return '_';
+    }
+
+    best
 }
 
 /// Recognize a Tetris board from an RGB image and return a fumen field string.
-/// The field string uses the same format as the tetris-fumen JavaScript package:
-/// rows from bottom to top, each row 10 chars, using piece letters.
 pub fn recognize_field(img: &RgbImage) -> Result<String, String> {
     let (width, height) = img.dimensions();
 
-    if width < MIN_IMAGE_SIZE || height < MIN_IMAGE_SIZE {
-        return Err(format!(
-            "Image too small ({}x{}). Minimum is {}px.",
-            width, height, MIN_IMAGE_SIZE
-        ));
+    if width < 10 || height < 10 {
+        return Err("Image too small (minimum 10×10 pixels)".to_string());
     }
 
-    // 1. Convert to grayscale
-    let gray = image::imageops::grayscale(img);
+    // 1. Find board bounds within the image
+    let (bx0, by0, bx1, by1) = find_board_bounds(img);
+    let bw = bx1 - bx0;
+    let bh = by1 - by0;
 
-    // 2. Edge detection with Canny
-    // Use automatic thresholds based on image intensity statistics
-    let edges = canny(&gray, 15.0, 40.0);
-
-    // 3. Detect grid lines via Hough transform
-    let (vertical_lines, horizontal_lines) = find_grid_lines(&edges, width, height)?;
-
-    // 4. Build cell grid
-    // For each cell defined by adjacent grid lines, sample the color at its center
-    let num_rows = horizontal_lines.len() - 1;
-    let num_cols = vertical_lines.len() - 1;
-
-    // Sample adaptive background color from top cells
-    let bg = sample_background(img, num_rows, num_cols, &horizontal_lines, &vertical_lines);
+    // 2. Build proportional grid over the detected board region
+    let cell_w = bw as f64 / NUM_COLS as f64;
+    let n_rows = (bh as f64 / cell_w).ceil() as usize;
+    let n_rows = n_rows.max(1).min(40);
 
     let mut field = String::new();
 
-    // Build rows from top (highest y) to bottom (lowest y)
-    // But fumen expects bottom-to-top, so we iterate rows in reverse
-    for row in (0..num_rows).rev() {
-        let y_top = horizontal_lines[row] as u32;
-        let y_bot = horizontal_lines[row + 1] as u32;
-        let y_center = ((y_top + y_bot) / 2).min(height - 1);
+    // Scan rows bottom-to-top (fumen convention)
+    for row in (0..n_rows).rev() {
+        let y_top = by0 as f64 + row as f64 * (bh as f64 / n_rows as f64);
+        let y_bot = by0 as f64 + (row + 1) as f64 * (bh as f64 / n_rows as f64);
+        let y_center = ((y_top + y_bot) / 2.0) as u32;
+        let y_center = y_center.min(height - 1);
 
-        for col in 0..num_cols {
-            let x_left = vertical_lines[col] as u32;
-            let x_right = vertical_lines[col + 1] as u32;
-            let x_center = ((x_left + x_right) / 2).min(width - 1);
+        for col in 0..NUM_COLS {
+            let x_left = bx0 as f64 + col as f64 * (bw as f64 / NUM_COLS as f64);
+            let x_right = bx0 as f64 + (col + 1) as f64 * (bw as f64 / NUM_COLS as f64);
+            let x_center = ((x_left + x_right) / 2.0) as u32;
+            let x_center = x_center.min(width - 1);
 
             let pixel = img.get_pixel(x_center, y_center);
-            let piece = match_piece_color((pixel[0], pixel[1], pixel[2]), bg);
-            field.push(piece);
+            field.push(match_piece_color(pixel[0], pixel[1], pixel[2]));
         }
         if row > 0 {
             field.push('\n');
         }
     }
 
-    if field.trim().is_empty() || field.chars().all(|c| c == '_' || c == '\n') {
+    // 3. Trim leading/trailing empty rows
+    let lines: Vec<&str> = field.lines().collect();
+    let mut start = 0;
+    while start < lines.len() && lines[start].chars().all(|c| c == '_') {
+        start += 1;
+    }
+    if start == lines.len() {
         return Err("Board appears empty. Is the screenshot showing a Tetris field?".to_string());
     }
+    let mut end = lines.len();
+    while end > start && lines[end - 1].chars().all(|c| c == '_') {
+        end -= 1;
+    }
 
-    Ok(field)
+    Ok(lines[start..end].join("
+"))
 }
 
 /// Load an image from file path and recognize the Tetris board.
@@ -360,6 +217,66 @@ pub fn recognize_field_from_bytes(bytes: &[u8]) -> Result<String, String> {
     recognize_field(&img)
 }
 
+// ── Tests ──
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rgb_to_hsl_red() {
+        let (h, s, l) = rgb_to_hsl(255, 0, 0);
+        assert!((h - 0.0).abs() < 1.0);
+        assert!((s - 100.0).abs() < 1.0);
+        assert!((l - 50.0).abs() < 2.0);
+    }
+
+    #[test]
+    fn test_match_red_is_z() {
+        assert_eq!(match_piece_color(200, 30, 30), 'Z');
+    }
+
+    #[test]
+    fn test_match_cyan_is_i() {
+        assert_eq!(match_piece_color(0, 200, 200), 'I');
+    }
+
+    #[test]
+    fn test_match_dark_is_empty() {
+        assert_eq!(match_piece_color(10, 10, 10), '_');
+    }
+
+    #[test]
+    fn test_match_green_is_s() {
+        assert_eq!(match_piece_color(20, 200, 20), 'S');
+    }
+
+    #[test]
+    fn test_rgb_to_yuv_black() {
+        let (y, _, _) = rgb_to_yuv(0, 0, 0);
+        assert!((y).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_find_board_bounds_all_dark() {
+        // A 10x10 image with all black pixels should return full image bounds
+        let img = RgbImage::from_fn(10, 10, |_, _| image::Rgb([0, 0, 0]));
+        let (x0, y0, x1, y1) = find_board_bounds(&img);
+        assert_eq!((x0, y0, x1, y1), (0, 0, 10, 10));
+    }
+
+    #[test]
+    fn test_find_board_bounds_small_bright_region() {
+        // 20x20 image, one bright pixel at (5,5)
+        let mut img = RgbImage::from_fn(20, 20, |_, _| image::Rgb([0, 0, 0]));
+        img.put_pixel(5, 5, image::Rgb([255, 255, 255]));
+        let (x0, y0, x1, y1) = find_board_bounds(&img);
+        // Should find the bright region with some margin
+        assert!(x0 <= 5);
+        assert!(y0 <= 5);
+        assert!(x1 >= 5);
+        assert!(y1 >= 5);
+    }
+}
 // ─── Screenshot capture state ───
 
 #[derive(Clone, Serialize)]

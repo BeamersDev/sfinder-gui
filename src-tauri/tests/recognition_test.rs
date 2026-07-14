@@ -22,36 +22,42 @@ fn test_recognize_full_board() {
     // Should have detected some non-empty cells
     let has_pieces = field.chars().any(|c| matches!(c, 'I'|'O'|'T'|'S'|'Z'|'J'|'L'|'X'));
     assert!(has_pieces, "No pieces detected in full board");
+
+    // Should be at least 10 rows
+    assert!(lines.len() >= 10, "Only {} rows detected (expected >= 10)", lines.len());
 }
 
-/// Small / low-res board images may not have enough edge features
-/// for Hough transform to find 11 vertical lines. This is expected.
+/// Partial board (close-up of bottom section only)
 #[test]
-#[ignore = "Partial boards need adaptive grid detection"]
 fn test_recognize_partial_board() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/board_partial.png");
     let result = sfinder_gui_lib::recognition::recognize_field_from_file(
         path.to_str().unwrap(),
     );
-    // May fail due to insufficient grid lines — algorithm requires visible grid
-    if let Ok(field) = result {
-        let lines: Vec<&str> = field.trim().lines().filter(|l| !l.is_empty()).collect();
-        for (i, line) in lines.iter().enumerate() {
-            assert_eq!(line.len(), 10, "Row {} has {} columns", i, line.len());
-        }
+    assert!(result.is_ok(), "Partial board recognition failed: {:?}", result.err());
+
+    let field = result.unwrap();
+    let lines: Vec<&str> = field.trim().lines().filter(|l| !l.is_empty()).collect();
+    assert!(!lines.is_empty(), "Empty field result");
+
+    for (i, line) in lines.iter().enumerate() {
+        assert_eq!(line.len(), 10, "Row {} has {} columns", i, line.len());
     }
+
+    let has_pieces = field.chars().any(|c| matches!(c, 'I'|'O'|'T'|'S'|'Z'|'J'|'L'|'X'));
+    assert!(has_pieces, "No pieces detected in partial board");
 }
 
-/// Very sparse boards may not produce enough Hough lines. Expected.
+/// Nearly-empty board — should at least detect the grid structure
 #[test]
-#[ignore = "Nearly-empty boards need adaptive grid detection"]
 fn test_recognize_empty_board() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/board_empty.png");
     let result = sfinder_gui_lib::recognition::recognize_field_from_file(
         path.to_str().unwrap(),
     );
+    // May fail if truly empty — the algorithm requires some colored cells
     if let Ok(field) = result {
         let lines: Vec<&str> = field.trim().lines().filter(|l| !l.is_empty()).collect();
         for (i, line) in lines.iter().enumerate() {
