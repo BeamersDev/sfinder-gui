@@ -348,10 +348,10 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
         let info = screen.display_info;
         let x = info.x;
         let y = info.y;
-        let buf: Vec<u8> = capture.as_raw().to_vec(); // raw BGRA pixels
+        let buf: Vec<u8> = capture.as_raw().to_vec(); // RGBA pixels (image::RgbaImage)
 
         // Encode as JPEG → base64 data URL (faster than PNG)
-        // Downsample by 2x for overlay display speed, extract RGB from BGRA
+        // Downsample by 2x for overlay display speed
         let scale = 2u32;
         let sw = w / scale;
         let sh = h / scale;
@@ -359,9 +359,9 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
         for row in 0..sh {
             for col in 0..sw {
                 let idx = ((row * scale * w + col * scale) * 4) as usize;
-                rgb_data.push(buf[idx + 2]); // R (BGRA byte 2)
-                rgb_data.push(buf[idx + 1]); // G (BGRA byte 1)
-                rgb_data.push(buf[idx]);     // B (BGRA byte 0)
+                rgb_data.push(buf[idx]);     // R
+                rgb_data.push(buf[idx + 1]); // G
+                rgb_data.push(buf[idx + 2]); // B
             }
         }
 
@@ -386,7 +386,7 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
             y,
         });
 
-        // Store full-resolution raw BGRA for crop recognition
+        // Store full-resolution raw RGBA for crop recognition
         store.images.insert((x, y), buf);
         store.dims.insert((x, y), (w, h));
     }
@@ -418,9 +418,9 @@ pub fn crop_and_recognize(x: i32, y: i32, w: u32, h: u32) -> Result<String, Stri
     for row in oy..oy + ch {
         for col in ox..ox + cw {
             let idx = ((row * mw + col) * 4) as usize;
-            cropped.push(pixels[idx + 2]); // R (BGRA byte 2)
-            cropped.push(pixels[idx + 1]); // G (BGRA byte 1)
-            cropped.push(pixels[idx]);     // B (BGRA byte 0)
+            cropped.push(pixels[idx]);     // R (RGBA byte 0)
+            cropped.push(pixels[idx + 1]); // G (RGBA byte 1)
+            cropped.push(pixels[idx + 2]); // B (RGBA byte 2)
         }
     }
 
