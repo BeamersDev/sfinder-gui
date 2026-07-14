@@ -12,7 +12,6 @@ import SetupPage from '@/routes/SetupPage';
 import RenPage from '@/routes/RenPage';
 import SpinPage from '@/routes/SpinPage';
 import CoverPage from '@/routes/CoverPage';
-import RecognizePage from '@/routes/RecognizePage';
 import ViewFumenPage from '@/routes/ViewFumenPage';
 import type { JavaInfo } from '@/types/app';
 
@@ -78,7 +77,6 @@ export default function App() {
             <Route path="/ren" element={<RenPage />} />
             <Route path="/spin" element={<SpinPage />} />
             <Route path="/cover" element={<CoverPage />} />
-            <Route path="/recognize" element={<RecognizePage />} />
           </Routes>
         </AppLayout>
       } />

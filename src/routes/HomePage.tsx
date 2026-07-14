@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Percent, Route, Edit3, Zap, Wrench, RotateCw, LayoutGrid, Scan, Play } from 'lucide-react';
+import { Percent, Route, Edit3, Zap, Wrench, RotateCw, LayoutGrid, Play } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { useCommandStore } from '@/stores/commandStore';
 import { useT } from '@/i18n/useTranslation';
@@ -12,7 +12,6 @@ const quickActions = [
   { to: '/ren', label: 'Ren', icon: Zap, desc: 'Continue combos' },
   { to: '/spin', label: 'Spin', icon: RotateCw, desc: 'Find T-spin solutions' },
   { to: '/cover', label: 'Cover', icon: LayoutGrid, desc: 'Coverage analysis' },
-  { to: '/recognize', label: 'Recognize', icon: Scan, desc: 'Recognize field from screenshot' },
 ];
 
 export default function HomePage() {
