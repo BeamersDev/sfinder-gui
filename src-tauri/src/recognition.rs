@@ -436,6 +436,12 @@ pub fn crop_and_recognize(x: i32, y: i32, w: u32, h: u32) -> Result<String, Stri
     let img = RgbImage::from_raw(cw, ch, cropped)
         .ok_or("Failed to create cropped image")?;
 
+    // Debug: save cropped image for inspection
+    let debug_path = std::env::temp_dir().join("sfinder_cropped_debug.png");
+    if let Err(e) = img.save(&debug_path) {
+        eprintln!("Failed to save debug image: {}", e);
+    }
+
     recognize_field(&img)
 }
 
