@@ -227,6 +227,11 @@ pub async fn capture_and_recognize() -> Result<String, String> {
 /// Creates the overlay immediately; screenshots load via get_capture_data.
 #[tauri::command]
 pub async fn start_capture(app: tauri::AppHandle) -> Result<(), String> {
+    // Destroy any leftover overlay from a previous failed capture
+    if let Some(existing) = app.get_webview_window("capture-overlay") {
+        let _ = existing.close();
+    }
+
     // Minimize main window so it's not in the screenshot
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.minimize();
