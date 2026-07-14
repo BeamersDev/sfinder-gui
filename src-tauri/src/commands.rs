@@ -332,3 +332,9 @@ pub async fn close_overlay(app: tauri::AppHandle) -> Result<(), String> {
         Ok(())
     }
 }
+
+/// Read a temp file and return its bytes (for overlay to load images).
+#[tauri::command]
+pub async fn read_temp_file(path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&path).map_err(|e| format!("Failed to read temp file: {}", e))
+}

@@ -5,7 +5,6 @@ use screenshots::Screen;
 use std::io::Cursor;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use base64::Engine;
 use serde::Serialize;
 
 /// Standard Tetris piece reference colors (R, G, B) in sRGB
@@ -30,8 +29,8 @@ const SUPPRESSION_RADIUS: u32 = 4;
 /// Angle tolerance in degrees for classifying lines
 const ANGLE_TOLERANCE: u32 = 12;
 
-/// Minimum aspect ratio for the image to be considered a board screenshot
-const MIN_IMAGE_SIZE: u32 = 100;
+/// Minimum image dimension — very relaxed since we handle small selections
+const MIN_IMAGE_SIZE: u32 = 1;
 
 /// Color distance threshold — above this is treated as empty
 const COLOR_DISTANCE_THRESHOLD: f64 = 1.0;
@@ -96,10 +95,24 @@ fn find_grid_lines(
     let horizontal_lines = cluster_and_sort(&horizontals, img_height as f64 * 0.03);
 
     // Pick the best 11 vertical lines that form a regular grid
-    let vertical_lines = pick_grid_lines(&vertical_lines, NUM_COLS + 1, 0.25)?;
-    let horizontal_lines = pick_grid_lines(&horizontal_lines, 0, 0.35)?;
+    let vertical_lines = pick_grid_lines(&vertical_lines, NUM_COLS + 1, 0.25);
+    let horizontal_lines = pick_grid_lines(&horizontal_lines, 0, 0.35);
 
-    if horizontal_lines.len() < NUM_ROWS_MIN + 1 {
+    // Fallback: if grid detection failed, divide image proportionally into cells
+    let (vertical_lines, horizontal_lines) = match (vertical_lines, horizontal_lines) {
+        (Ok(v), Ok(h)) if v.len() == 11 && h.len() >= 2 => (v, h),
+        _ => {
+            // Divide width into 10 equal columns
+            let cell_w = img_width as f64 / 10.0;
+            let fallback_v: Vec<f64> = (0..=10).map(|i| i as f64 * cell_w).collect();
+            // Divide height into ~row-like segments (23 rows is standard)
+            let cell_h = img_height as f64 / 23.0;
+            let fallback_h: Vec<f64> = (0..23).map(|i| i as f64 * cell_h).collect();
+            (fallback_v, fallback_h)
+        }
+    };
+
+    if horizontal_lines.len() < 2 {
         return Err(format!(
             "Only {} board rows detected (need at least {}). Try a closer crop.",
             horizontal_lines.len() - 1,
@@ -401,7 +414,7 @@ pub fn recognize_field_from_bytes(bytes: &[u8]) -> Result<String, String> {
 
 #[derive(Clone, Serialize)]
 pub struct MonitorInfo {
-    pub data_url: String,
+    pub path: String,
     pub width: u32,
     pub height: u32,
     pub x: i32,
@@ -474,27 +487,27 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
         let rgb = image::RgbImage::from_raw(sw, sh, rgb_data)
             .ok_or("Failed to create RGB image")?;
 
-        // Fast JPEG at medium quality (50) — fast enough for overlay display
-        let mut jpg_buf = Cursor::new(Vec::new());
+        // Fast JPEG at quality 50, save to temp file
+        let tmp_path = std::env::temp_dir().join(format!("sfinder_capture_{}_{}.jpg", x, y));
+        let tmp_str = tmp_path.display().to_string();
+        let mut tmp_file = std::fs::File::create(&tmp_path).map_err(|e| e.to_string())?;
         {
-            let mut encoder = JpegEncoder::new_with_quality(&mut jpg_buf, 50);
+            let mut encoder = JpegEncoder::new_with_quality(&mut tmp_file, 50);
             encoder.encode(&rgb.as_raw(), sw, sh, image::ExtendedColorType::Rgb8)
                 .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
         }
-        let b64 = base64::engine::general_purpose::STANDARD.encode(jpg_buf.into_inner());
-        let data_url = format!("data:image/jpeg;base64,{}", b64);
-
-        // Store full-resolution raw RGBA for crop recognition (unscaled)
-        store.images.insert((x, y), rgba);
-        store.dims.insert((x, y), (w, h));
 
         monitors.push(MonitorInfo {
-            data_url,
+            path: tmp_str,
             width: sw,
             height: sh,
             x,
             y,
         });
+
+        // Store full-resolution raw RGBA for crop recognition (unscaled)
+        store.images.insert((x, y), rgba);
+        store.dims.insert((x, y), (w, h));
     }
 
     *CAPTURE.lock().map_err(|e| e.to_string())? = Some(store);
