@@ -256,6 +256,12 @@ fn color_distance(c1: (u8, u8, u8), c2: (u8, u8, u8)) -> f64 {
 /// Match a sampled cell color to the nearest Tetris piece color.
 /// Returns the piece character ('_' for empty, 'X' for garbage, or piece letter).
 fn match_piece_color(sampled: (u8, u8, u8)) -> char {
+    // If the cell is too dark (luminance < 0.15), it's background/empty
+    let (y, _u, _v) = rgb_to_yuv(sampled.0, sampled.1, sampled.2);
+    if y < 0.15 {
+        return '_';
+    }
+
     let mut best_char = '_';
     let mut best_dist = COLOR_DISTANCE_THRESHOLD;
 

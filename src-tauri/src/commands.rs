@@ -236,8 +236,8 @@ pub async fn start_capture(app: tauri::AppHandle) -> Result<crate::recognition::
     // Calculate bounding box of all monitors for the overlay window
     let (min_x, min_y, max_x, max_y) = data.monitors.iter().fold(
         (i32::MAX, i32::MAX, i32::MIN, i32::MIN),
-        |(mx, my, Mx, My), m| {
-            (mx.min(m.x), my.min(m.y), Mx.max(m.x + m.width as i32), My.max(m.y + m.height as i32))
+        |(acc_min_x, acc_min_y, acc_max_x, acc_max_y), m| {
+            (acc_min_x.min(m.x), acc_min_y.min(m.y), acc_max_x.max(m.x + m.width as i32), acc_max_y.max(m.y + m.height as i32))
         },
     );
     let win_w = (max_x - min_x) as u32;
