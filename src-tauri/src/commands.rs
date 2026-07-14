@@ -275,8 +275,7 @@ pub async fn get_capture_data() -> Result<crate::recognition::CaptureData, Strin
 
 /// Crop and recognize a region from the captured screen data.
 /// The overlay sends (x, y, w, h) in global screen coordinates.
-/// On success, emits "screenshot-result" event and returns the field string.
-/// On failure, emits "screenshot-error" event with the error message.
+/// Re-captures screens on every call for WYSIWYG (what you see is what you get).
 #[tauri::command]
 pub async fn crop_and_recognize(
     app: tauri::AppHandle,
@@ -285,6 +284,9 @@ pub async fn crop_and_recognize(
     w: u32,
     h: u32,
 ) -> Result<String, String> {
+    // Re-capture now so the screenshot matches what the user sees
+    crate::recognition::capture_all_monitors()?;
+
     match crate::recognition::crop_and_recognize(x, y, w, h) {
         Ok(field) => {
             let _ = app.emit("screenshot-result", &field);
