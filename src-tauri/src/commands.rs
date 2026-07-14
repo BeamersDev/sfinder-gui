@@ -284,12 +284,10 @@ pub async fn crop_and_recognize(
     w: u32,
     h: u32,
 ) -> Result<String, String> {
-    // Close overlay first so it doesn't appear in the screenshot
+    // Hide overlay so it doesn't appear in the screenshot (don't close — frontend needs the IPC response)
     if let Some(window) = app.get_webview_window("capture-overlay") {
-        let _ = window.close();
+        let _ = window.hide();
     }
-    // Brief delay to ensure the window is gone before DXGI capture
-    std::thread::sleep(std::time::Duration::from_millis(50));
 
     // Re-capture now so the screenshot matches what the user sees
     crate::recognition::capture_all_monitors()?;
@@ -297,6 +295,10 @@ pub async fn crop_and_recognize(
     match crate::recognition::crop_and_recognize(x, y, w, h) {
         Ok(field) => {
             let _ = app.emit("screenshot-result", &field);
+            // Close overlay window (frontend is done)
+            if let Some(window) = app.get_webview_window("capture-overlay") {
+                let _ = window.close();
+            }
             // Restore main window
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.unminimize();
@@ -306,6 +308,10 @@ pub async fn crop_and_recognize(
         }
         Err(e) => {
             let _ = app.emit("screenshot-error", &e);
+            // Close overlay window
+            if let Some(window) = app.get_webview_window("capture-overlay") {
+                let _ = window.close();
+            }
             // Still restore main window
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.unminimize();
