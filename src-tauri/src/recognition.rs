@@ -67,45 +67,6 @@ fn color_distance(c1: (u8, u8, u8), c2: (u8, u8, u8)) -> f64 {
     (2.0 * dy * dy + du * du + dv * dv).sqrt()
 }
 
-// ── Board detection ──
-
-/// Find the pixel bounds of the actual Tetris board within the image.
-/// Scans inward from edges looking for non-dark (colored) cells.
-fn find_board_bounds(img: &RgbImage) -> (u32, u32, u32, u32) {
-    let (w, h) = img.dimensions();
-    let mut min_x = w;
-    let mut min_y = h;
-    let mut max_x = 0u32;
-    let mut max_y = 0u32;
-
-    // Sample every 4th pixel for speed
-    for y in (0..h).step_by(4) {
-        for x in (0..w).step_by(4) {
-            let px = img.get_pixel(x, y);
-            let (_, _, l) = rgb_to_hsl(px[0], px[1], px[2]);
-            if l > MIN_LIGHTNESS {
-                min_x = min_x.min(x);
-                min_y = min_y.min(y);
-                max_x = max_x.max(x);
-                max_y = max_y.max(y);
-            }
-        }
-    }
-
-    if max_x <= min_x || max_y <= min_y {
-        // No colored cells found — use whole image
-        return (0, 0, w, h);
-    }
-
-    // Add a small margin (2px) to avoid cutting off edges
-    let margin = 2u32;
-    let x0 = min_x.saturating_sub(margin);
-    let y0 = min_y.saturating_sub(margin);
-    let x1 = (max_x + margin).min(w);
-    let y1 = (max_y + margin).min(h);
-    (x0, y0, x1, y1)
-}
-
 // ── Recognition ──
 
 /// Match a pixel color to a Tetris piece type.
@@ -173,28 +134,23 @@ pub fn recognize_field(img: &RgbImage) -> Result<String, String> {
         return Err("Image too small (minimum 10×10 pixels)".to_string());
     }
 
-    // 1. Find board bounds within the image
-    let (bx0, by0, bx1, by1) = find_board_bounds(img);
-    let bw = bx1 - bx0;
-    let bh = by1 - by0;
-
-    // 2. Build proportional grid over the detected board region
-    let cell_w = bw as f64 / NUM_COLS as f64;
-    let n_rows = (bh as f64 / cell_w).ceil() as usize;
+    // Proportional grid over the full image (user selected the board area)
+    let cell_w = width as f64 / NUM_COLS as f64;
+    let n_rows = (height as f64 / cell_w).ceil() as usize;
     let n_rows = n_rows.max(1).min(40);
 
     let mut field = String::new();
 
-    // Scan rows bottom-to-top (fumen convention)
+    // Scan rows bottom-to-top (fumen convention: row 0 = bottom)
     for row in (0..n_rows).rev() {
-        let y_top = by0 as f64 + row as f64 * (bh as f64 / n_rows as f64);
-        let y_bot = by0 as f64 + (row + 1) as f64 * (bh as f64 / n_rows as f64);
+        let y_top = row as f64 * (height as f64 / n_rows as f64);
+        let y_bot = (row + 1) as f64 * (height as f64 / n_rows as f64);
         let y_center = ((y_top + y_bot) / 2.0) as u32;
         let y_center = y_center.min(height - 1);
 
         for col in 0..NUM_COLS {
-            let x_left = bx0 as f64 + col as f64 * (bw as f64 / NUM_COLS as f64);
-            let x_right = bx0 as f64 + (col + 1) as f64 * (bw as f64 / NUM_COLS as f64);
+            let x_left = col as f64 * (width as f64 / NUM_COLS as f64);
+            let x_right = (col + 1) as f64 * (width as f64 / NUM_COLS as f64);
             let x_center = ((x_left + x_right) / 2.0) as u32;
             let x_center = x_center.min(width - 1);
 
@@ -206,7 +162,7 @@ pub fn recognize_field(img: &RgbImage) -> Result<String, String> {
         }
     }
 
-    // 3. Trim leading/trailing empty rows
+    // Trim leading/trailing empty rows
     let lines: Vec<&str> = field.lines().collect();
     let mut start = 0;
     while start < lines.len() && lines[start].chars().all(|c| c == '_') {
@@ -220,8 +176,7 @@ pub fn recognize_field(img: &RgbImage) -> Result<String, String> {
         end -= 1;
     }
 
-    Ok(lines[start..end].join("
-"))
+    Ok(lines[start..end].join("\n"))
 }
 
 /// Load an image from file path and recognize the Tetris board.
@@ -280,24 +235,11 @@ mod tests {
     }
 
     #[test]
-    fn test_find_board_bounds_all_dark() {
-        // A 10x10 image with all black pixels should return full image bounds
-        let img = RgbImage::from_fn(10, 10, |_, _| image::Rgb([0, 0, 0]));
-        let (x0, y0, x1, y1) = find_board_bounds(&img);
-        assert_eq!((x0, y0, x1, y1), (0, 0, 10, 10));
-    }
-
-    #[test]
-    fn test_find_board_bounds_small_bright_region() {
-        // 20x20 image, one bright pixel at (5,5)
-        let mut img = RgbImage::from_fn(20, 20, |_, _| image::Rgb([0, 0, 0]));
-        img.put_pixel(5, 5, image::Rgb([255, 255, 255]));
-        let (x0, y0, x1, y1) = find_board_bounds(&img);
-        // Should find the bright region with some margin
-        assert!(x0 <= 5);
-        assert!(y0 <= 5);
-        assert!(x1 >= 5);
-        assert!(y1 >= 5);
+    fn test_rgb_to_hsl_black() {
+        let (h, s, l) = rgb_to_hsl(0, 0, 0);
+        assert!((h - 0.0).abs() < 1.0);
+        assert!((s - 0.0).abs() < 1.0);
+        assert!((l - 0.0).abs() < 1.0);
     }
 }
 // ─── Screenshot capture state ───
@@ -415,8 +357,18 @@ pub fn crop_and_recognize(x: i32, y: i32, w: u32, h: u32) -> Result<String, Stri
         eprintln!("Failed to save debug image: {}", e);
     }
 
-    // Convert to RGB for recognition
-    let rgb = image::DynamicImage::ImageRgba8(cropped).to_rgb8();
+    // Convert to RGB for recognition (drop alpha, no blending)
+    let rgb = {
+        let (w, h) = (cropped.width(), cropped.height());
+        let raw = cropped.as_raw();
+        let mut rgb_data = Vec::with_capacity((w * h * 3) as usize);
+        for chunk in raw.chunks(4) {
+            rgb_data.push(chunk[0]); // R
+            rgb_data.push(chunk[1]); // G
+            rgb_data.push(chunk[2]); // B
+        }
+        RgbImage::from_raw(w, h, rgb_data).ok_or("Failed to convert to RGB")?
+    };
     recognize_field(&rgb)
 }
 
