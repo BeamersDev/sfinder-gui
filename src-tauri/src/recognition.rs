@@ -1,4 +1,4 @@
-use image::{RgbImage, codecs::jpeg::JpegEncoder};
+use image::{RgbImage, codecs::jpeg::JpegEncoder, GenericImageView};
 use screenshots::Screen;
 use std::io::Cursor;
 use std::collections::HashMap;
@@ -316,16 +316,16 @@ pub struct CaptureData {
     pub monitors: Vec<MonitorInfo>,
 }
 
-/// Stores raw RGBA pixels of captured monitors, keyed by (x,y) offset
+/// Stores captured RgbaImage of each monitor, keyed by (x,y) offset
 struct CaptureStore {
-    images: HashMap<(i32, i32), Vec<u8>>,
+    images: HashMap<(i32, i32), image::RgbaImage>,
     dims: HashMap<(i32, i32), (u32, u32)>,
 }
 
 static CAPTURE: std::sync::LazyLock<Mutex<Option<CaptureStore>>> =
     std::sync::LazyLock::new(|| Mutex::new(None));
 
-/// Capture all monitors, encode as base64 PNG, store raw pixels for cropping
+/// Capture all monitors, encode as base64 JPEG, store images for cropping
 pub fn capture_all_monitors() -> Result<CaptureData, String> {
     let screens = Screen::all().map_err(|e| format!("Failed to access screens: {}", e))?;
     if screens.is_empty() {
@@ -348,31 +348,22 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
         let info = screen.display_info;
         let x = info.x;
         let y = info.y;
-        let buf: Vec<u8> = capture.as_raw().to_vec(); // RGBA pixels (image::RgbaImage)
 
-        // Encode as JPEG → base64 data URL (faster than PNG)
-        // Downsample by 2x for overlay display speed
+        // Convert screenshots::image::RgbaImage → image::RgbaImage (bridging crate versions)
+        let raw = capture.as_raw().to_vec();
+        let img: image::RgbaImage = image::RgbaImage::from_raw(w, h, raw)
+            .ok_or("Failed to convert captured image")?;
+
+        // Encode as JPEG → base64 data URL (downsampled 2x for speed)
         let scale = 2u32;
         let sw = w / scale;
         let sh = h / scale;
-        let mut rgb_data = Vec::with_capacity((sw * sh * 3) as usize);
-        for row in 0..sh {
-            for col in 0..sw {
-                let idx = ((row * scale * w + col * scale) * 4) as usize;
-                rgb_data.push(buf[idx]);     // R
-                rgb_data.push(buf[idx + 1]); // G
-                rgb_data.push(buf[idx + 2]); // B
-            }
-        }
-
-        let rgb = image::RgbImage::from_raw(sw, sh, rgb_data)
-            .ok_or("Failed to create RGB image")?;
-
-        // Fast JPEG at quality 50, encode as base64 data URL
+        let small = image::imageops::resize(&img, sw, sh, image::imageops::FilterType::Nearest);
         let mut jpg_buf = Cursor::new(Vec::new());
         {
             let mut encoder = JpegEncoder::new_with_quality(&mut jpg_buf, 50);
-            encoder.encode(&rgb.as_raw(), sw, sh, image::ExtendedColorType::Rgb8)
+            encoder
+                .encode(&small.as_raw(), sw, sh, image::ExtendedColorType::Rgba8)
                 .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
         }
         let b64 = base64::engine::general_purpose::STANDARD.encode(jpg_buf.into_inner());
@@ -386,8 +377,8 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
             y,
         });
 
-        // Store full-resolution raw RGBA for crop recognition
-        store.images.insert((x, y), buf);
+        // Store full-resolution RgbaImage for crop recognition
+        store.images.insert((x, y), img);
         store.dims.insert((x, y), (w, h));
     }
 
@@ -401,39 +392,32 @@ pub fn crop_and_recognize(x: i32, y: i32, w: u32, h: u32) -> Result<String, Stri
     let store = guard.as_ref().ok_or("No capture data. Capture first.")?;
 
     // Find which monitor contains this region
-    let monitor = store.images.iter().find(|((mx, my), _)| {
-        let (mw, mh) = store.dims.get(&(*mx, *my)).unwrap_or(&(0, 0));
-        x >= *mx && y >= *my && x < mx + *mw as i32 && y < my + *mh as i32
-    }).ok_or("Selection outside all captured monitors")?;
+    let ((mx, my), img) = store
+        .images
+        .iter()
+        .find(|((mx, my), _)| {
+            let (mw, mh) = store.dims.get(&(*mx, *my)).unwrap_or(&(0, 0));
+            x >= *mx && y >= *my && x < mx + *mw as i32 && y < my + *mh as i32
+        })
+        .ok_or("Selection outside all captured monitors")?;
 
-    let ((mx, my), pixels) = monitor;
-    let (mw, mh) = store.dims.get(&(*mx, *my)).unwrap();
     let ox = (x - mx) as u32;
     let oy = (y - my) as u32;
-    let cw = w.min(*mw - ox);
-    let ch = h.min(*mh - oy);
+    let cw = w.min(img.width() - ox);
+    let ch = h.min(img.height() - oy);
 
-    // Extract RGB pixels from raw BGRA for the cropped region
-    let mut cropped = Vec::with_capacity((cw * ch * 3) as usize);
-    for row in oy..oy + ch {
-        for col in ox..ox + cw {
-            let idx = ((row * mw + col) * 4) as usize;
-            cropped.push(pixels[idx]);     // R (RGBA byte 0)
-            cropped.push(pixels[idx + 1]); // G (RGBA byte 1)
-            cropped.push(pixels[idx + 2]); // B (RGBA byte 2)
-        }
-    }
-
-    let img = RgbImage::from_raw(cw, ch, cropped)
-        .ok_or("Failed to create cropped image")?;
+    // Crop subregion using image crate
+    let cropped = image::imageops::crop_imm(img, ox, oy, cw, ch).to_image();
 
     // Debug: save cropped image for inspection
     let debug_path = std::env::temp_dir().join("sfinder_cropped_debug.png");
-    if let Err(e) = img.save(&debug_path) {
+    if let Err(e) = cropped.save(&debug_path) {
         eprintln!("Failed to save debug image: {}", e);
     }
 
-    recognize_field(&img)
+    // Convert to RGB for recognition
+    let rgb = image::DynamicImage::ImageRgba8(cropped).to_rgb8();
+    recognize_field(&rgb)
 }
 
 /// Clear capture data after use
