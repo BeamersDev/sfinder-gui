@@ -5,6 +5,7 @@ use screenshots::Screen;
 use std::io::Cursor;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use base64::Engine;
 use serde::Serialize;
 
 /// Standard Tetris piece reference colors (R, G, B) in sRGB
@@ -416,7 +417,7 @@ pub fn recognize_field_from_bytes(bytes: &[u8]) -> Result<String, String> {
 
 #[derive(Clone, Serialize)]
 pub struct MonitorInfo {
-    pub path: String,
+    pub data_url: String,
     pub width: u32,
     pub height: u32,
     pub x: i32,
@@ -489,18 +490,18 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
         let rgb = image::RgbImage::from_raw(sw, sh, rgb_data)
             .ok_or("Failed to create RGB image")?;
 
-        // Fast JPEG at quality 50, save to temp file
-        let tmp_path = std::env::temp_dir().join(format!("sfinder_capture_{}_{}.jpg", x, y));
-        let tmp_str = tmp_path.display().to_string();
-        let mut tmp_file = std::fs::File::create(&tmp_path).map_err(|e| e.to_string())?;
+        // Fast JPEG at quality 50, encode as base64 data URL
+        let mut jpg_buf = Cursor::new(Vec::new());
         {
-            let mut encoder = JpegEncoder::new_with_quality(&mut tmp_file, 50);
+            let mut encoder = JpegEncoder::new_with_quality(&mut jpg_buf, 50);
             encoder.encode(&rgb.as_raw(), sw, sh, image::ExtendedColorType::Rgb8)
                 .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
         }
+        let b64 = base64::engine::general_purpose::STANDARD.encode(jpg_buf.into_inner());
+        let data_url = format!("data:image/jpeg;base64,{}", b64);
 
         monitors.push(MonitorInfo {
-            path: tmp_str,
+            data_url,
             width: sw,
             height: sh,
             x,

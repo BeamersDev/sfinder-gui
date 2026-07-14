@@ -29,23 +29,11 @@ function draw(){
   ctx.fillStyle='rgba(0,0,0,0.25)';ctx.fillRect(0,0,c.width,c.height);
 }
 
-async function loadImg(path,x,y,w,h){
-  try{
-    const bytes=await invoke('read_temp_file',{path});
-    const blob=new Blob([new Uint8Array(bytes)],{type:'image/jpeg'});
-    const url=URL.createObjectURL(blob);
-    const img=new Image();
-    img.src=url;
-    await new Promise((res,rej)=>{img.onload=res;img.onerror=rej});
-    imgs.push({img,x,y,w,h});
-    draw();
-  }catch(e){console.error('Failed to load',path,e)}
-}
-
 (async()=>{
   try{
     const data=await invoke('get_capture_data');
-    await Promise.all(data.monitors.map(m=>loadImg(m.path,m.x,m.y,m.width,m.height)));
+    for(const m of data.monitors){const img=new Image();img.src=m.dataUrl;imgs.push({img,x:m.x,y:m.y,w:m.width,h:m.height})}
+    await Promise.all(imgs.map(m=>new Promise(r=>{if(m.img.complete)r();else m.img.onload=r})));
     resize();
   }catch(e){await invoke('close_overlay')}
 })();

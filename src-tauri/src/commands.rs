@@ -266,27 +266,7 @@ pub async fn start_capture(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Get approximate virtual desktop bounds. If no capture data yet, use default.
-fn get_virtual_desktop_bounds(
-    monitors: Option<&[crate::recognition::MonitorInfo]>,
-) -> (i32, i32, u32, u32) {
-    if let Some(data) = monitors {
-        if !data.is_empty() {
-            let (min_x, min_y, max_x, max_y) = data.iter().fold(
-                (i32::MAX, i32::MAX, i32::MIN, i32::MIN),
-                |(acc_min_x, acc_min_y, acc_max_x, acc_max_y), m| {
-                    (acc_min_x.min(m.x), acc_min_y.min(m.y), acc_max_x.max(m.x + m.width as i32), acc_max_y.max(m.y + m.height as i32))
-                },
-            );
-            return (min_x, min_y, (max_x - min_x) as u32, (max_y - min_y) as u32);
-        }
-    }
-    // Default to 1920x1080 at origin
-    (0, 0, 1920, 1080)
-}
-
 /// Get the stored capture data (trigger capture if not yet done).
-/// This is called by the overlay after it loads — so the window appears immediately.
 #[tauri::command]
 pub async fn get_capture_data() -> Result<crate::recognition::CaptureData, String> {
     let data = crate::recognition::capture_all_monitors()?;
@@ -329,11 +309,9 @@ pub async fn crop_and_recognize(
 
 /// Close the overlay window by label.
 /// Emits a cancel event so the toolbar can reset its capturing state.
-/// Restores the main window and closes the info window.
 #[tauri::command]
 pub async fn close_overlay(app: tauri::AppHandle) -> Result<(), String> {
     let _ = app.emit("screenshot-cancelled", "");
-    // Restore main window
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.unminimize();
         let _ = main.set_focus();
@@ -343,10 +321,4 @@ pub async fn close_overlay(app: tauri::AppHandle) -> Result<(), String> {
     } else {
         Ok(())
     }
-}
-
-/// Read a temp file and return its bytes (for overlay to load images).
-#[tauri::command]
-pub async fn read_temp_file(path: String) -> Result<Vec<u8>, String> {
-    std::fs::read(&path).map_err(|e| format!("Failed to read temp file: {}", e))
 }
