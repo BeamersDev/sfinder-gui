@@ -105,9 +105,11 @@ fn find_grid_lines(
             // Divide width into 10 equal columns
             let cell_w = img_width as f64 / 10.0;
             let fallback_v: Vec<f64> = (0..=10).map(|i| i as f64 * cell_w).collect();
-            // Divide height into ~row-like segments (23 rows is standard)
-            let cell_h = img_height as f64 / 23.0;
-            let fallback_h: Vec<f64> = (0..23).map(|i| i as f64 * cell_h).collect();
+            // Estimate rows: cells are roughly square, so use width/10 as cell size
+            let n_rows = (img_height as f64 / cell_w).ceil() as usize;
+            let n_rows = n_rows.max(1).min(40); // sanity clamp
+            let cell_h = img_height as f64 / n_rows as f64;
+            let fallback_h: Vec<f64> = (0..=n_rows).map(|i| i as f64 * cell_h).collect();
             (fallback_v, fallback_h)
         }
     };
