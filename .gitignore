@@ -8,3 +8,6 @@ src-tauri/output/
 .DS_Store
 solution-finder-1.43/
 solution-finder-*.zip
+
+# Tauri generated schemas
+src-tauri/gen/schemas/

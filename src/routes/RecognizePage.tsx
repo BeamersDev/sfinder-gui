@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ImageUp, ClipboardPaste, Scan, AlertCircle, ArrowRight } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useNavigate } from 'react-router-dom';
 import { useFumenStore } from '@/stores/fumenStore';
-import { useT } from '@/i18n/useTranslation';
 import { Field, decoder } from 'tetris-fumen';
 
 const PIECE_CHARS = new Set(['I', 'O', 'T', 'S', 'Z', 'J', 'L', 'X']);
@@ -32,10 +31,8 @@ function parseFieldToFumenPages(fieldStr: string) {
 }
 
 export default function RecognizePage() {
-  const t = useT();
   const navigate = useNavigate();
   const setPages = useFumenStore((s) => s.setPages);
-  
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [imageBytes, setImageBytes] = useState<number[] | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
