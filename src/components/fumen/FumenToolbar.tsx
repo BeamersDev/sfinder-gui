@@ -54,6 +54,14 @@ export default function FumenToolbar() {
     return () => { unlisten.then(fn => fn()); };
   }, [decodeFumen]);
 
+  // Listen for screenshot cancel (Esc / close button)
+  useEffect(() => {
+    const unlisten = listen<string>('screenshot-cancelled', () => {
+      setCapturing(false);
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, []);
+
   const handleCopy = useCallback(async () => {
     try { await navigator.clipboard.writeText(fumenString); } catch { }
   }, [fumenString]);

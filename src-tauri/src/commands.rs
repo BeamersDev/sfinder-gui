@@ -227,7 +227,17 @@ pub async fn capture_and_recognize() -> Result<String, String> {
 pub async fn start_capture(app: tauri::AppHandle) -> Result<crate::recognition::CaptureData, String> {
     let data = crate::recognition::capture_all_monitors()?;
 
-    // Create overlay window
+    // Calculate bounding box of all monitors for the overlay window
+    let (min_x, min_y, max_x, max_y) = data.monitors.iter().fold(
+        (i32::MAX, i32::MAX, i32::MIN, i32::MIN),
+        |(mx, my, Mx, My), m| {
+            (mx.min(m.x), my.min(m.y), Mx.max(m.x + m.width as i32), My.max(m.y + m.height as i32))
+        },
+    );
+    let win_w = (max_x - min_x) as u32;
+    let win_h = (max_y - min_y) as u32;
+
+    // Create overlay window spanning all monitors
     let _ = WebviewWindowBuilder::new(
         &app,
         "capture-overlay",
@@ -235,7 +245,8 @@ pub async fn start_capture(app: tauri::AppHandle) -> Result<crate::recognition::
     )
     .title("")
     .decorations(false)
-    .fullscreen(true)
+    .position(min_x as f64, min_y as f64)
+    .inner_size(win_w as f64, win_h as f64)
     .transparent(true)
     .skip_taskbar(true)
     .always_on_top(true)
@@ -271,9 +282,11 @@ pub async fn crop_and_recognize(
     Ok(result)
 }
 
-/// Close the overlay window by label
+/// Close the overlay window by label.
+/// Emits a cancel event so the toolbar can reset its capturing state.
 #[tauri::command]
 pub async fn close_overlay(app: tauri::AppHandle) -> Result<(), String> {
+    let _ = app.emit("screenshot-cancelled", "");
     if let Some(window) = app.get_webview_window("capture-overlay") {
         window.close().map_err(|e| e.to_string())
     } else {
