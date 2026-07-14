@@ -44,85 +44,16 @@ const NUM_ROWS_MIN: usize = 1;
 
 /// Detect grid lines from edge image and classify into vertical/horizontal groups
 fn find_grid_lines(
-    edges: &image::GrayImage,
+    _edges: &image::GrayImage,
     img_width: u32,
     img_height: u32,
 ) -> Result<(Vec<f64>, Vec<f64>), String> {
-    let options = LineDetectionOptions {
-        vote_threshold: VOTE_THRESHOLD,
-        suppression_radius: SUPPRESSION_RADIUS,
-    };
-
-    let lines = detect_lines(edges, options);
-
-    if lines.is_empty() {
-        return Err("No grid lines detected. Try a clearer screenshot.".to_string());
-    }
-
-    // Classify lines by angle
-    // In imageproc's PolarLine:
-    //   angle_in_degrees = 0°  → horizontal-ish line (line along x-axis)
-    //   angle_in_degrees = 90° → vertical-ish line (line along y-axis)
-    let mut verticals: Vec<f64> = Vec::new();
-    let mut horizontals: Vec<f64> = Vec::new();
-
-    for line in &lines {
-        let angle = line.angle_in_degrees;
-        let r = line.r as f64;
-
-        // Vertical lines: angle ≈ 90°
-        if angle.abs_diff(90) <= ANGLE_TOLERANCE {
-            verticals.push(r);
-        }
-        // Horizontal lines: angle ≈ 0° (wrapping 180° to 0°)
-        // In [0, 180), a horizontal line could be at 0° or near 180°
-        // 180° wraps to 0° with negated r, but imageproc reports [0, 180]
-        // So we check both: near 0° and near 180°
-        if angle <= ANGLE_TOLERANCE || angle >= (180 - ANGLE_TOLERANCE) {
-            horizontals.push(line.r as f64);
-        }
-    }
-
-    if verticals.len() < 3 || horizontals.len() < 3 {
-        return Err(format!(
-            "Found {} vertical and {} horizontal lines — need at least 3 each. Try a closer crop of the board.",
-            verticals.len(),
-            horizontals.len()
-        ));
-    }
-
-    // Cluster lines by position and pick the most "grid-like" sets
-    let vertical_lines = cluster_and_sort(&verticals, img_width as f64 * 0.03);
-    let horizontal_lines = cluster_and_sort(&horizontals, img_height as f64 * 0.03);
-
-    // Pick the best 11 vertical lines that form a regular grid
-    let vertical_lines = pick_grid_lines(&vertical_lines, NUM_COLS + 1, 0.25);
-    let horizontal_lines = pick_grid_lines(&horizontal_lines, 0, 0.35);
-
-    // Fallback: if grid detection failed, divide image proportionally into cells
-    let (vertical_lines, horizontal_lines) = match (vertical_lines, horizontal_lines) {
-        (Ok(v), Ok(h)) if v.len() == 11 && h.len() >= 2 => (v, h),
-        _ => {
-            // Divide width into 10 equal columns
-            let cell_w = img_width as f64 / 10.0;
-            let fallback_v: Vec<f64> = (0..=10).map(|i| i as f64 * cell_w).collect();
-            // Estimate rows: cells are roughly square, so use width/10 as cell size
-            let n_rows = (img_height as f64 / cell_w).ceil() as usize;
-            let n_rows = n_rows.max(1).min(40); // sanity clamp
-            let cell_h = img_height as f64 / n_rows as f64;
-            let fallback_h: Vec<f64> = (0..=n_rows).map(|i| i as f64 * cell_h).collect();
-            (fallback_v, fallback_h)
-        }
-    };
-
-    if horizontal_lines.len() < 2 {
-        return Err(format!(
-            "Only {} board rows detected (need at least {}). Try a closer crop.",
-            horizontal_lines.len() - 1,
-            NUM_ROWS_MIN
-        ));
-    }
-
+    let cell_w = img_width as f64 / NUM_COLS as f64;
+    let vertical_lines: Vec<f64> = (0..=NUM_COLS).map(|i| i as f64 * cell_w).collect();
+    let n_rows = (img_height as f64 / cell_w).ceil() as usize;
+    let n_rows = n_rows.max(1).min(40);
+    let cell_h = img_height as f64 / n_rows as f64;
+    let horizontal_lines: Vec<f64> = (0..=n_rows).map(|i| i as f64 * cell_h).collect();
     Ok((vertical_lines, horizontal_lines))
 }
 
@@ -269,34 +200,50 @@ fn color_distance(c1: (u8, u8, u8), c2: (u8, u8, u8)) -> f64 {
     (dy * dy * 2.0 + du * du + dv * dv).sqrt()
 }
 
-/// Match a sampled cell color to the nearest Tetris piece color.
-/// First checks if the cell differs significantly from the background.
-fn match_piece_color(sampled: (u8, u8, u8), bg_color: Option<(u8, u8, u8)>) -> char {
-    // If the cell is too dark, it's background/empty
-    let (y, _u, _v) = rgb_to_yuv(sampled.0, sampled.1, sampled.2);
-    if y < 0.15 {
+
+/// Convert RGB to HSL (H: 0-360, S: 0-100, L: 0-100)
+fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
+    let r = r as f64 / 255.0;
+    let g = g as f64 / 255.0;
+    let b = b as f64 / 255.0;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let l = (max + min) / 2.0 * 100.0;
+    if max == min {
+        return (0.0, 0.0, l);
+    }
+    let d = max - min;
+    let s = if l > 50.0 { d / (2.0 - max - min) } else { d / (max + min) } * 100.0;
+    let h = match max {
+        x if x == r => (g - b) / d + (if g < b { 6.0 } else { 0.0 }),
+        x if x == g => (b - r) / d + 2.0,
+        _ => (r - g) / d + 4.0,
+    } * 60.0;
+    (h, s, l)
+}
+
+/// Match a sampled cell color using HSL (four-tris style).
+fn match_piece_color(sampled: (u8, u8, u8), _bg_color: Option<(u8, u8, u8)>) -> char {
+    let (h, s, l) = rgb_to_hsl(sampled.0, sampled.1, sampled.2);
+    // Dark -> empty
+    if l < 30.0 {
         return '_';
     }
-
-    // If background is available, discard cells close to it
-    if let Some(bg) = bg_color {
-        if color_distance(sampled, bg) < 0.3 {
-            return '_';
-        }
+    // Low saturation -> garbage or empty border
+    if s < 15.0 {
+        return if l > 40.0 { 'X' } else { '_' };
     }
-
-    let mut best_char = '_';
-    let mut best_dist = COLOR_DISTANCE_THRESHOLD;
-
-    for &(ref_r, ref_g, ref_b, piece_char) in REFERENCE_COLORS {
-        let dist = color_distance(sampled, (ref_r, ref_g, ref_b));
-        if dist < best_dist {
-            best_dist = dist;
-            best_char = piece_char;
-        }
+    // Match by hue range (four-tris style)
+    match h as u32 {
+        0..=15 | 340..=360 => 'Z',  // red
+        16..=40 => 'L',             // orange
+        41..=70 => 'O',             // yellow
+        71..=170 => 'S',            // green
+        171..=200 => 'I',           // cyan
+        201..=260 => 'J',           // blue
+        261..=339 => 'T',           // purple
+        _ => '_',
     }
-
-    best_char
 }
 
 /// Sample background color from empty cells at the top of the detected grid.
