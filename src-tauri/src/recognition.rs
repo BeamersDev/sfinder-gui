@@ -34,7 +34,7 @@ const ANGLE_TOLERANCE: u32 = 12;
 const MIN_IMAGE_SIZE: u32 = 100;
 
 /// Color distance threshold — above this is treated as empty
-const COLOR_DISTANCE_THRESHOLD: f64 = 100.0;
+const COLOR_DISTANCE_THRESHOLD: f64 = 1.0;
 
 /// Expected number of columns in a Tetris board
 const NUM_COLS: usize = 10;
@@ -254,12 +254,19 @@ fn color_distance(c1: (u8, u8, u8), c2: (u8, u8, u8)) -> f64 {
 }
 
 /// Match a sampled cell color to the nearest Tetris piece color.
-/// Returns the piece character ('_' for empty, 'X' for garbage, or piece letter).
-fn match_piece_color(sampled: (u8, u8, u8)) -> char {
-    // If the cell is too dark (luminance < 0.15), it's background/empty
+/// First checks if the cell differs significantly from the background.
+fn match_piece_color(sampled: (u8, u8, u8), bg_color: Option<(u8, u8, u8)>) -> char {
+    // If the cell is too dark, it's background/empty
     let (y, _u, _v) = rgb_to_yuv(sampled.0, sampled.1, sampled.2);
     if y < 0.15 {
         return '_';
+    }
+
+    // If background is available, discard cells close to it
+    if let Some(bg) = bg_color {
+        if color_distance(sampled, bg) < 0.3 {
+            return '_';
+        }
     }
 
     let mut best_char = '_';
@@ -274,6 +281,43 @@ fn match_piece_color(sampled: (u8, u8, u8)) -> char {
     }
 
     best_char
+}
+
+/// Sample background color from empty cells at the top of the detected grid.
+fn sample_background(img: &image::RgbImage, rows: usize, cols: usize,
+    horizontal_lines: &[f64], vertical_lines: &[f64]) -> Option<(u8, u8, u8)> {
+    let (w, h) = img.dimensions();
+    let mut r_sum = 0u64; let mut g_sum = 0u64; let mut b_sum = 0u64;
+    let mut count = 0u64;
+
+    let sample_rows = 3.min(rows);
+    let sample_cols = 5.min(cols);
+
+    for row in 0..sample_rows {
+        let y_top = horizontal_lines[row] as u32;
+        let y_bot = horizontal_lines[row + 1] as u32;
+        let y_center = ((y_top + y_bot) / 2).min(h - 1);
+        for col in 0..sample_cols {
+            let x_left = vertical_lines[col] as u32;
+            let x_right = vertical_lines[col + 1] as u32;
+            let x_center = ((x_left + x_right) / 2).min(w - 1);
+            let px = img.get_pixel(x_center, y_center);
+            let (y_val, _, _) = rgb_to_yuv(px[0], px[1], px[2]);
+            if y_val < 0.4 {
+                r_sum += px[0] as u64;
+                g_sum += px[1] as u64;
+                b_sum += px[2] as u64;
+                count += 1;
+            }
+        }
+    }
+
+    if count > 0 {
+        Some(((r_sum / count) as u8, (g_sum / count) as u8, (b_sum / count) as u8))
+    } else {
+        let px = img.get_pixel(5, 5);
+        Some((px[0], px[1], px[2]))
+    }
 }
 
 /// Recognize a Tetris board from an RGB image and return a fumen field string.
@@ -304,6 +348,9 @@ pub fn recognize_field(img: &RgbImage) -> Result<String, String> {
     let num_rows = horizontal_lines.len() - 1;
     let num_cols = vertical_lines.len() - 1;
 
+    // Sample adaptive background color from top cells
+    let bg = sample_background(img, num_rows, num_cols, &horizontal_lines, &vertical_lines);
+
     let mut field = String::new();
 
     // Build rows from top (highest y) to bottom (lowest y)
@@ -319,7 +366,7 @@ pub fn recognize_field(img: &RgbImage) -> Result<String, String> {
             let x_center = ((x_left + x_right) / 2).min(width - 1);
 
             let pixel = img.get_pixel(x_center, y_center);
-            let piece = match_piece_color((pixel[0], pixel[1], pixel[2]));
+            let piece = match_piece_color((pixel[0], pixel[1], pixel[2]), bg);
             field.push(piece);
         }
         if row > 0 {
@@ -526,20 +573,20 @@ mod tests {
     #[test]
     fn test_match_piece_color_red_is_z() {
         // Z piece is red
-        let piece = match_piece_color((240, 0, 0));
+        let piece = match_piece_color((240, 0, 0), Some((0, 0, 0)));
         assert_eq!(piece, 'Z');
     }
 
     #[test]
     fn test_match_piece_color_cyan_is_i() {
-        let piece = match_piece_color((0, 240, 240));
+        let piece = match_piece_color((0, 240, 240), Some((0, 0, 0)));
         assert_eq!(piece, 'I');
     }
 
     #[test]
     fn test_match_piece_color_dark_is_empty() {
         // Very dark color should be empty (below threshold)
-        let piece = match_piece_color((10, 10, 10));
+        let piece = match_piece_color((10, 10, 10), Some((0, 0, 0)));
         assert_eq!(piece, '_');
     }
 }
