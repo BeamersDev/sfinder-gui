@@ -1,6 +1,12 @@
-use image::RgbImage;
+use image::{RgbImage, ImageFormat};
 use imageproc::edges::canny;
 use imageproc::hough::{detect_lines, LineDetectionOptions};
+use screenshots::Screen;
+use std::io::Cursor;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use base64::Engine;
+use serde::Serialize;
 
 /// Standard Tetris piece reference colors (R, G, B) in sRGB
 /// These are the canonical colors from the Tetris guideline
@@ -336,6 +342,132 @@ pub fn recognize_field_from_bytes(bytes: &[u8]) -> Result<String, String> {
         .map_err(|e| format!("Failed to decode image: {}", e))?
         .to_rgb8();
     recognize_field(&img)
+}
+
+// ─── Screenshot capture state ───
+
+#[derive(Clone, Serialize)]
+pub struct MonitorInfo {
+    pub data_url: String,
+    pub width: u32,
+    pub height: u32,
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Serialize)]
+pub struct CaptureData {
+    pub monitors: Vec<MonitorInfo>,
+}
+
+/// Stores raw RGBA pixels of captured monitors, keyed by (x,y) offset
+struct CaptureStore {
+    images: HashMap<(i32, i32), Vec<u8>>,
+    dims: HashMap<(i32, i32), (u32, u32)>,
+}
+
+static CAPTURE: std::sync::LazyLock<Mutex<Option<CaptureStore>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
+
+/// Capture all monitors, encode as base64 PNG, store raw pixels for cropping
+pub fn capture_all_monitors() -> Result<CaptureData, String> {
+    let screens = Screen::all().map_err(|e| format!("Failed to access screens: {}", e))?;
+    if screens.is_empty() {
+        return Err("No screens found".to_string());
+    }
+
+    let mut store = CaptureStore {
+        images: HashMap::new(),
+        dims: HashMap::new(),
+    };
+    let mut monitors = Vec::new();
+
+    for screen in &screens {
+        let capture = screen
+            .capture()
+            .map_err(|e| format!("Failed to capture screen: {}", e))?;
+
+        let w = capture.width();
+        let h = capture.height();
+        let info = screen.display_info;
+        let x = info.x;
+        let y = info.y;
+        let buf: Vec<u8> = capture.as_raw().to_vec(); // BGRA pixels
+
+        // Convert BGRA → RGBA
+        let mut rgba = Vec::with_capacity(buf.len());
+        for chunk in buf.chunks(4) {
+            rgba.push(chunk[2]); // R
+            rgba.push(chunk[1]); // G
+            rgba.push(chunk[0]); // B
+            rgba.push(chunk[3]); // A
+        }
+
+        // Encode as PNG → base64 data URL
+        let img = image::RgbaImage::from_raw(w, h, rgba.clone())
+            .ok_or("Failed to create image from capture")?;
+        let mut png_buf = Cursor::new(Vec::new());
+        img.write_to(&mut png_buf, ImageFormat::Png)
+            .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(png_buf.into_inner());
+        let data_url = format!("data:image/png;base64,{}", b64);
+
+        monitors.push(MonitorInfo {
+            data_url,
+            width: w,
+            height: h,
+            x,
+            y,
+        });
+
+        store.images.insert((x, y), rgba);
+        store.dims.insert((x, y), (w, h));
+    }
+
+    *CAPTURE.lock().map_err(|e| e.to_string())? = Some(store);
+    Ok(CaptureData { monitors })
+}
+
+/// Crop a region from the captured screen data and recognize the field
+pub fn crop_and_recognize(x: i32, y: i32, w: u32, h: u32) -> Result<String, String> {
+    let guard = CAPTURE.lock().map_err(|e| e.to_string())?;
+    let store = guard.as_ref().ok_or("No capture data. Capture first.")?;
+
+    // Find which monitor contains this region
+    let monitor = store.images.iter().find(|((mx, my), _)| {
+        let (mw, mh) = store.dims.get(&(*mx, *my)).unwrap_or(&(0, 0));
+        x >= *mx && y >= *my && x < mx + *mw as i32 && y < my + *mh as i32
+    }).ok_or("Selection outside all captured monitors")?;
+
+    let ((mx, my), pixels) = monitor;
+    let (mw, mh) = store.dims.get(&(*mx, *my)).unwrap();
+    let ox = (x - mx) as u32;
+    let oy = (y - my) as u32;
+    let cw = w.min(*mw - ox);
+    let ch = h.min(*mh - oy);
+
+    // Extract RGBA pixels for the cropped region
+    let mut cropped = Vec::with_capacity((cw * ch * 3) as usize);
+    for row in oy..oy + ch {
+        for col in ox..ox + cw {
+            let idx = ((row * mw + col) * 4) as usize;
+            cropped.push(pixels[idx]);     // R
+            cropped.push(pixels[idx + 1]); // G
+            cropped.push(pixels[idx + 2]); // B
+        }
+    }
+
+    let img = RgbImage::from_raw(cw, ch, cropped)
+        .ok_or("Failed to create cropped image")?;
+
+    recognize_field(&img)
+}
+
+/// Clear capture data after use
+pub fn clear_capture() {
+    if let Ok(mut guard) = CAPTURE.lock() {
+        *guard = None;
+    }
 }
 
 #[cfg(test)]

@@ -1,20 +1,20 @@
 import { useFumenStore } from '@/stores/fumenStore';
 import { Trash2, Undo2, Redo2, ArrowLeftRight, ArrowUpDown, ArrowLeft, Copy, ClipboardPaste, FilePlus, Camera } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useT } from '@/i18n/useTranslation';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { Field, encoder } from 'tetris-fumen';
 
 const PIECE_CHARS = new Set(['I', 'O', 'T', 'S', 'Z', 'J', 'L', 'X']);
 
-/** Convert a recognized field string (lines of 10 chars) to a fumen code */
 function fieldStrToFumen(fieldStr: string): string | null {
   const lines = fieldStr.trim().split('\n').filter(Boolean);
   if (lines.length === 0 || lines[0].length !== 10) return null;
   try {
     const field = Field.create('_'.repeat(10 * 23), '_'.repeat(10));
     for (let row = 0; row < lines.length; row++) {
-      const line = lines[lines.length - 1 - row]; // reverse for fumen coords
+      const line = lines[lines.length - 1 - row];
       for (let col = 0; col < 10; col++) {
         const ch = line[col];
         if (PIECE_CHARS.has(ch)) field.set(col, row, ch as any);
@@ -29,7 +29,7 @@ function fieldStrToFumen(fieldStr: string): string | null {
 export default function FumenToolbar() {
   const t = useT();
   const [capturing, setCapturing] = useState(false);
-  const clearField = useFumenStore((s) => s.clearField);
+  const decodeFumen = useFumenStore((s) => s.decodeFumen);
   const newFile = useFumenStore((s) => s.newFile);
   const undo = useFumenStore((s) => s.undo);
   const redo = useFumenStore((s) => s.redo);
@@ -37,35 +37,43 @@ export default function FumenToolbar() {
   const flipVertical = useFumenStore((s) => s.flipVertical);
   const mirrorField = useFumenStore((s) => s.mirrorField);
   const fumenString = useFumenStore((s) => s.fumenString);
-  const decodeFumen = useFumenStore((s) => s.decodeFumen);
+  const clearField = useFumenStore((s) => s.clearField);
   const undoStack = useFumenStore((s) => s.undoStack);
   const redoStack = useFumenStore((s) => s.redoStack);
 
+  // Listen for screenshot result event
+  useEffect(() => {
+    const unlisten = listen<string>('screenshot-result', (event) => {
+      const fieldStr = event.payload;
+      const fumen = fieldStrToFumen(fieldStr);
+      if (fumen) {
+        decodeFumen(fumen);
+      }
+      setCapturing(false);
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, [decodeFumen]);
+
   const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(fumenString);
-    } catch { /* fallback silently */ }
+    try { await navigator.clipboard.writeText(fumenString); } catch { }
   }, [fumenString]);
 
   const handleImport = useCallback(async () => {
     try {
       const text = await navigator.clipboard.readText();
       if (text.trim()) decodeFumen(text);
-    } catch { /* fallback silently */ }
+    } catch { }
   }, [decodeFumen]);
 
   const handleScreenshot = useCallback(async () => {
     setCapturing(true);
     try {
-      const fieldStr = await invoke<string>('capture_and_recognize');
-      const fumen = fieldStrToFumen(fieldStr);
-      if (fumen) decodeFumen(fumen);
+      await invoke('start_capture');
     } catch (err) {
       console.error('Screenshot capture failed:', err);
-    } finally {
       setCapturing(false);
     }
-  }, [decodeFumen]);
+  }, []);
 
   const actions = [
     { icon: FilePlus, label: t('editor.new'), onClick: newFile },

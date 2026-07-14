@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::WebviewWindowBuilder;
 use tauri_plugin_shell::ShellExt;
 use crate::sfinder::{self, CommandState};
 
@@ -214,44 +215,68 @@ pub async fn recognize_field_from_bytes(bytes: Vec<u8>) -> Result<String, String
 /// Capture a screen region and recognize the Tetris board in one shot.
 /// Tries multiple screenshot tools in order, then runs recognition.
 #[tauri::command]
-pub async fn capture_and_recognize(_app: AppHandle) -> Result<String, String> {
-    let tmp_dir = std::env::temp_dir();
-    let output = tmp_dir.join("sfinder_screenshot.png");
-    let output_str = output.to_string_lossy().to_string();
+pub async fn capture_and_recognize() -> Result<String, String> {
+    crate::recognition::capture_all_monitors().and_then(|_| {
+        // For the old system-tool approach, just use first monitor full-screen
+        crate::recognition::crop_and_recognize(0, 0, u32::MAX, u32::MAX)
+    })
+}
 
-    // Try screenshot tools in order of preference
-    let tools: &[&[&str]] = &[
-        &["gnome-screenshot", "-a", "-f", &output_str],
-        &["flameshot", "screen", "-r", "-p", &output_str],
-        &["import", &output_str],  // ImageMagick
-        &["spectacle", "-b", "-r", "-o", &output_str],  // KDE
-        &["xfce4-screenshooter", "-r", "-s", &output_str],  // XFCE
-    ];
+/// Capture all monitors and open the overlay selection window.
+#[tauri::command]
+pub async fn start_capture(app: tauri::AppHandle) -> Result<crate::recognition::CaptureData, String> {
+    let data = crate::recognition::capture_all_monitors()?;
 
-    let mut captured = false;
-    for tool_args in tools {
-        let result = std::process::Command::new(tool_args[0])
-            .args(&tool_args[1..])
-            .output();
-        if let Ok(status) = result {
-            if status.status.success() && output.exists() {
-                captured = true;
-                break;
-            }
-        }
-    }
+    // Create overlay window
+    let _ = WebviewWindowBuilder::new(
+        &app,
+        "capture-overlay",
+        tauri::WebviewUrl::App("overlay.html".into()),
+    )
+    .title("")
+    .decorations(false)
+    .fullscreen(true)
+    .transparent(true)
+    .skip_taskbar(true)
+    .always_on_top(true)
+    .build()
+    .map_err(|e| format!("Failed to create overlay window: {}", e))?;
 
-    if !captured {
-        return Err(
-            "No screenshot tool found. Install gnome-screenshot, flameshot, or ImageMagick."
-                .to_string(),
-        );
-    }
+    Ok(data)
+}
 
-    let result = crate::recognition::recognize_field_from_file(&output_str)?;
+/// Get the stored capture data (for overlay to load after creation)
+#[tauri::command]
+pub async fn get_capture_data() -> Result<crate::recognition::CaptureData, String> {
+    // Re-capture if not already captured
+    crate::recognition::capture_all_monitors()
+}
 
-    // Clean up
-    let _ = std::fs::remove_file(&output);
+/// Crop and recognize a region from the captured screen data.
+/// The overlay sends (x, y, w, h) in global screen coordinates.
+/// On success, emits "screenshot-result" event and returns the field string.
+#[tauri::command]
+pub async fn crop_and_recognize(
+    app: tauri::AppHandle,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+) -> Result<String, String> {
+    let result = crate::recognition::crop_and_recognize(x, y, w, h)?;
+
+    // Emit event so the main window can pick up the result
+    let _ = app.emit("screenshot-result", &result);
 
     Ok(result)
+}
+
+/// Close the overlay window by label
+#[tauri::command]
+pub async fn close_overlay(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("capture-overlay") {
+        window.close().map_err(|e| e.to_string())
+    } else {
+        Ok(())
+    }
 }

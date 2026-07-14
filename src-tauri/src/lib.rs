@@ -22,6 +22,10 @@ pub fn run() {
             commands::recognize_field_from_path,
             commands::recognize_field_from_bytes,
             commands::capture_and_recognize,
+            commands::start_capture,
+            commands::get_capture_data,
+            commands::crop_and_recognize,
+            commands::close_overlay,
             color_split::auto_split_field,
         ])
         .run(tauri::generate_context!())
