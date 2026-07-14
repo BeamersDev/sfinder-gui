@@ -299,28 +299,25 @@ pub async fn crop_and_recognize(
 
     match crate::recognition::crop_and_recognize(x, y, w, h) {
         Ok(field) => {
-            let _ = app.emit("screenshot-result", &field);
-            // Close overlay window (frontend is done)
-            if let Some(window) = app.get_webview_window("capture-overlay") {
-                let _ = window.close();
-            }
-            // Restore main window
+            // Restore main window BEFORE emitting event (so JS listener is active)
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.unminimize();
                 let _ = main.set_focus();
+            }
+            let _ = app.emit("screenshot-result", &field);
+            if let Some(window) = app.get_webview_window("capture-overlay") {
+                let _ = window.close();
             }
             Ok(field)
         }
         Err(e) => {
-            let _ = app.emit("screenshot-error", &e);
-            // Close overlay window
-            if let Some(window) = app.get_webview_window("capture-overlay") {
-                let _ = window.close();
-            }
-            // Still restore main window
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.unminimize();
                 let _ = main.set_focus();
+            }
+            let _ = app.emit("screenshot-error", &e);
+            if let Some(window) = app.get_webview_window("capture-overlay") {
+                let _ = window.close();
             }
             Err(e)
         }
