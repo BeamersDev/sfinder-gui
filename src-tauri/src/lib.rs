@@ -1,6 +1,7 @@
 mod color_split;
 mod commands;
 mod kick_table;
+mod recognition;
 mod sfinder;
 
 use sfinder::CommandState;
@@ -18,6 +19,8 @@ pub fn run() {
             commands::cancel_command,
             commands::read_output_file,
             commands::get_bundled_jar,
+            commands::recognize_field_from_path,
+            commands::recognize_field_from_bytes,
             color_split::auto_split_field,
         ])
         .run(tauri::generate_context!())

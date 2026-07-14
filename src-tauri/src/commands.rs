@@ -200,3 +200,13 @@ pub async fn read_output_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read file '{}': {}", path, e))
 }
+
+#[tauri::command]
+pub async fn recognize_field_from_path(path: String) -> Result<String, String> {
+    crate::recognition::recognize_field_from_file(&path)
+}
+
+#[tauri::command]
+pub async fn recognize_field_from_bytes(bytes: Vec<u8>) -> Result<String, String> {
+    crate::recognition::recognize_field_from_bytes(&bytes)
+}
