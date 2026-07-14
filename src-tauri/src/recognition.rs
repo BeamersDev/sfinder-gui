@@ -348,29 +348,20 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
         let info = screen.display_info;
         let x = info.x;
         let y = info.y;
-        let buf: Vec<u8> = capture.as_raw().to_vec(); // BGRA pixels
-
-        // Convert BGRA → RGBA
-        let mut rgba = Vec::with_capacity(buf.len());
-        for chunk in buf.chunks(4) {
-            rgba.push(chunk[2]); // R
-            rgba.push(chunk[1]); // G
-            rgba.push(chunk[0]); // B
-            rgba.push(chunk[3]); // A
-        }
+        let buf: Vec<u8> = capture.as_raw().to_vec(); // raw BGRA pixels
 
         // Encode as JPEG → base64 data URL (faster than PNG)
-        // Convert RGBA to RGB for JPEG, at half resolution for overlay display speed
-        let scale = 2u32; // downsample by 2x
+        // Downsample by 2x for overlay display speed, extract RGB from BGRA
+        let scale = 2u32;
         let sw = w / scale;
         let sh = h / scale;
         let mut rgb_data = Vec::with_capacity((sw * sh * 3) as usize);
         for row in 0..sh {
             for col in 0..sw {
                 let idx = ((row * scale * w + col * scale) * 4) as usize;
-                rgb_data.push(rgba[idx]);     // R
-                rgb_data.push(rgba[idx + 1]); // G
-                rgb_data.push(rgba[idx + 2]); // B
+                rgb_data.push(buf[idx + 2]); // R (BGRA byte 2)
+                rgb_data.push(buf[idx + 1]); // G (BGRA byte 1)
+                rgb_data.push(buf[idx]);     // B (BGRA byte 0)
             }
         }
 
@@ -395,8 +386,8 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
             y,
         });
 
-        // Store full-resolution raw RGBA for crop recognition (unscaled)
-        store.images.insert((x, y), rgba);
+        // Store full-resolution raw BGRA for crop recognition
+        store.images.insert((x, y), buf);
         store.dims.insert((x, y), (w, h));
     }
 
@@ -422,14 +413,14 @@ pub fn crop_and_recognize(x: i32, y: i32, w: u32, h: u32) -> Result<String, Stri
     let cw = w.min(*mw - ox);
     let ch = h.min(*mh - oy);
 
-    // Extract RGBA pixels for the cropped region
+    // Extract RGB pixels from raw BGRA for the cropped region
     let mut cropped = Vec::with_capacity((cw * ch * 3) as usize);
     for row in oy..oy + ch {
         for col in ox..ox + cw {
             let idx = ((row * mw + col) * 4) as usize;
-            cropped.push(pixels[idx]);     // R
-            cropped.push(pixels[idx + 1]); // G
-            cropped.push(pixels[idx + 2]); // B
+            cropped.push(pixels[idx + 2]); // R (BGRA byte 2)
+            cropped.push(pixels[idx + 1]); // G (BGRA byte 1)
+            cropped.push(pixels[idx]);     // B (BGRA byte 0)
         }
     }
 
