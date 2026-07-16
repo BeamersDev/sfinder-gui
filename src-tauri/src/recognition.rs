@@ -284,25 +284,7 @@ pub fn recognize_field(img: &RgbImage) -> Result<String, String> {
 
     let trimmed: Vec<&str> = raw_lines[start..end].iter().map(|s| s.as_str()).collect();
 
-    // Deduplicate: if adjacent rows are >70% similar, keep the one with more pieces
-    let mut deduped: Vec<&str> = Vec::new();
-    for line in trimmed {
-        if let Some(&last) = deduped.last() {
-            let same = line.chars().zip(last.chars()).filter(|(a, b)| a == b).count();
-            if same >= 7 {
-                let curr_pieces = line.chars().filter(|c| *c != '_').count();
-                let prev_pieces = last.chars().filter(|c| *c != '_').count();
-                if curr_pieces > prev_pieces {
-                    deduped.pop();
-                    deduped.push(line);
-                }
-                continue;
-            }
-        }
-        deduped.push(line);
-    }
-
-    Ok(deduped.join("\n"))
+    Ok(trimmed.join("\n"))
 }
 
 /// Load an image from file path and recognize the Tetris board.
