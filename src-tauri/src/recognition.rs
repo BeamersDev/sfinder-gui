@@ -1,20 +1,20 @@
-use image::{RgbImage, codecs::jpeg::JpegEncoder, GenericImageView};
+use image::{RgbImage, codecs::jpeg::JpegEncoder};
 use screenshots::Screen;
 use std::io::Cursor;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use base64::Engine;
 use serde::Serialize;
-
-/// Standard Tetris piece reference colors (R, G, B) in sRGB
+/// Standard Tetris piece reference colors (R, G, B)
+/// Matched to tetr.io + common Tetris client palettes
 const REFERENCE_COLORS: &[(u8, u8, u8, char)] = &[
-    (0,   240, 240, 'I'),  // cyan
-    (240, 240, 0,   'O'),  // yellow
-    (160, 0,   240, 'T'),  // purple
-    (0,   240, 0,   'S'),  // green
-    (240, 0,   0,   'Z'),  // red
-    (0,   0,   240, 'J'),  // blue
-    (240, 160, 0,   'L'),  // orange
+    (10,  240, 240, 'I'),  // cyan
+    (255, 210,  20, 'O'),  // yellow (golden, not pure)
+    (130,  80, 250, 'T'),  // purple
+    (150, 250,  30, 'S'),  // green (bright lime)
+    (250,  40,  40, 'Z'),  // red
+    (40,   80, 250, 'J'),  // blue (royal)
+    (250, 170,  10, 'L'),  // orange
     (128, 128, 128, 'X'),  // garbage (gray)
 ];
 
@@ -154,8 +154,19 @@ pub fn recognize_field(img: &RgbImage) -> Result<String, String> {
             let x_center = ((x_left + x_right) / 2.0) as u32;
             let x_center = x_center.min(width - 1);
 
-            let (r, g, b) = sample_cell_avg(img, x_center, y_center, 2);
-            field.push(match_piece_color(r, g, b));
+            let px = img.get_pixel(x_center, y_center);
+            let (r, g, b) = (px[0], px[1], px[2]);
+            let ch = match_piece_color(r, g, b);
+            if row == n_rows - 1 {
+                if let Ok(exe) = std::env::current_exe() {
+                    if let Some(dir) = exe.parent() {
+                        let log_path = dir.join("sfinder_recognize_debug.txt");
+                        let line = format!("col={} y={} rgb=({},{},{}) → '{}'\n", col, y_center, r, g, b, ch);
+                        let _ = std::fs::write(&log_path, line);
+                    }
+                }
+            }
+            field.push(ch);
         }
         if row > 0 {
             field.push('\n');
