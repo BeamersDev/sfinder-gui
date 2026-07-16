@@ -5,16 +5,16 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use base64::Engine;
 use serde::Serialize;
-/// Standard Tetris piece reference colors (R, G, B)
-/// Matched to tetr.io + common Tetris client palettes
+/// Tetr.io piece reference colors (R, G, B)
+/// Sampled from actual tetr.io client screenshots
 const REFERENCE_COLORS: &[(u8, u8, u8, char)] = &[
-    (10,  240, 240, 'I'),  // cyan
-    (255, 210,  20, 'O'),  // yellow (golden, not pure)
-    (130,  80, 250, 'T'),  // purple
-    (150, 250,  30, 'S'),  // green (bright lime)
-    (250,  40,  40, 'Z'),  // red
-    (40,   80, 250, 'J'),  // blue (royal)
-    (250, 170,  10, 'L'),  // orange
+    (60,  200, 180, 'I'),  // cyan    tetr.io actual: ~57,197,177
+    (240, 220,  90, 'O'),  // yellow  tetr.io actual: ~239,219,91
+    (120,  80, 160, 'T'),  // purple  tetr.io actual: ~118,79,159
+    (175, 215,  75, 'S'),  // green   tetr.io actual: ~174,216,73
+    (210,  70,  70, 'Z'),  // red     tetr.io actual: ~211,67,67
+    (90,  120, 200, 'J'),  // blue    tetr.io actual: ~89,119,199
+    (240, 160,  80, 'L'),  // orange  tetr.io actual: ~239,159,79
     (128, 128, 128, 'X'),  // garbage (gray)
 ];
 
@@ -157,15 +157,7 @@ pub fn recognize_field(img: &RgbImage) -> Result<String, String> {
             let px = img.get_pixel(x_center, y_center);
             let (r, g, b) = (px[0], px[1], px[2]);
             let ch = match_piece_color(r, g, b);
-            if row == n_rows - 1 {
-                if let Ok(exe) = std::env::current_exe() {
-                    if let Some(dir) = exe.parent() {
-                        let log_path = dir.join("sfinder_recognize_debug.txt");
-                        let line = format!("col={} y={} rgb=({},{},{}) → '{}'\n", col, y_center, r, g, b, ch);
-                        let _ = std::fs::write(&log_path, line);
-                    }
-                }
-            }
+            eprintln!("[recognize] row={}, col={} y_center={} rgb=({},{},{}) => '{}'", row, col, y_center, r, g, b, ch);
             field.push(ch);
         }
         if row > 0 {
