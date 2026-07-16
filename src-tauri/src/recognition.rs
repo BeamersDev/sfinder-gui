@@ -1,4 +1,4 @@
-use image::{codecs::jpeg::JpegEncoder, RgbImage};
+use image::{codecs::png::PngEncoder, RgbImage};
 use screenshots::Screen;
 use base64::Engine;
 use serde::Serialize;
@@ -241,7 +241,7 @@ pub fn recognize_field(img: &RgbImage) -> Result<(String, String), String> {
             let x_center = ((x_left + x_right) / 2.0) as u32;
             let x_center = x_center.min(width - 1);
 
-            // 5x5 region averaging to reduce JPEG noise
+            // 5x5 region averaging for anti-aliased edges
             let block_size = (cell_w / 4.0) as u32;
             let x0 = x_center.saturating_sub(block_size);
             let y0 = y_center.saturating_sub(block_size);
@@ -377,15 +377,15 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
         let sh = h / scale;
         let small = image::imageops::resize(&img, sw, sh, image::imageops::FilterType::Nearest);
         let small_rgb = image::DynamicImage::ImageRgba8(small).to_rgb8();
-        let mut jpg_buf = Cursor::new(Vec::new());
+        let mut png_buf = Cursor::new(Vec::new());
         {
-            let mut encoder = JpegEncoder::new_with_quality(&mut jpg_buf, 50);
+            let mut encoder = PngEncoder::new(&mut png_buf);
             encoder
-                .encode(small_rgb.as_raw(), sw, sh, image::ExtendedColorType::Rgb8)
-                .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
+                .write_image(small_rgb.as_raw(), sw, sh, image::ExtendedColorType::Rgb8)
+                .map_err(|e| format!("Failed to encode PNG: {}", e))?;
         }
-        let b64 = base64::engine::general_purpose::STANDARD.encode(jpg_buf.into_inner());
-        let data_url = format!("data:image/jpeg;base64,{}", b64);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(png_buf.into_inner());
+        let data_url = format!("data:image/png;base64,{}", b64);
 
         monitors.push(MonitorInfo {
             data_url,
