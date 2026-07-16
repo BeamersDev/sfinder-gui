@@ -227,9 +227,11 @@ pub async fn capture_and_recognize() -> Result<String, String> {
 /// Creates the overlay immediately; screenshots load via get_capture_data.
 #[tauri::command]
 pub async fn start_capture(app: tauri::AppHandle) -> Result<(), String> {
-    // Destroy any leftover overlay from a previous failed capture
+    // If overlay exists and is just hidden, show it
     if let Some(existing) = app.get_webview_window("capture-overlay") {
-        let _ = existing.close();
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return Ok(());
     }
 
     // Minimize main window so it's not in the screenshot
@@ -295,7 +297,7 @@ pub async fn crop_and_recognize(
     h: u32,
 ) -> Result<String, String> {
     eprintln!("[overlay] crop_and_recognize: x={}, y={}, w={}, h={}", x, y, w, h);
-    // Hide overlay so it doesn't appear in the screenshot (don't close — frontend needs the IPC response)
+    // Hide overlay so it doesn't appear in the screenshot (frontend will close it after IPC response)
     if let Some(window) = app.get_webview_window("capture-overlay") {
         let _ = window.hide();
     }
@@ -304,7 +306,6 @@ pub async fn crop_and_recognize(
     // Re-capture now so the screenshot matches what the user sees
     if let Err(e) = crate::recognition::capture_all_monitors() {
         eprintln!("[overlay] capture_all_monitors failed: {}", e);
-        // Restore window even on error
         if let Some(main) = app.get_webview_window("main") {
             let _ = main.unminimize();
             let _ = main.set_focus();
@@ -316,13 +317,14 @@ pub async fn crop_and_recognize(
     match crate::recognition::crop_and_recognize(x, y, w, h) {
         Ok(field) => {
             eprintln!("[overlay] recognition OK, {} rows", field.lines().count());
-            // Restore main window and emit directly to it
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.unminimize();
                 let _ = main.set_focus();
-                eprintln!("[overlay] main window restored, emitting screenshot-result");
-                let _ = main.emit("screenshot-result", &field);
+                eprintln!("[overlay] main window restored");
             }
+            // Use app.emit (global) not main.emit so JS listen() catches it
+            eprintln!("[overlay] emitting screenshot-result via app.emit");
+            let _ = app.emit("screenshot-result", &field);
             Ok(field)
         }
         Err(e) => {
@@ -330,8 +332,8 @@ pub async fn crop_and_recognize(
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.unminimize();
                 let _ = main.set_focus();
-                let _ = main.emit("screenshot-error", &e);
             }
+            let _ = app.emit("screenshot-error", &e);
             Err(e)
         }
     }
@@ -341,7 +343,6 @@ pub async fn crop_and_recognize(
 /// Emits a cancel event so the toolbar can reset its capturing state.
 #[tauri::command]
 pub async fn close_overlay(app: tauri::AppHandle) -> Result<(), String> {
-    let _ = app.emit("screenshot-cancelled", "");
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.unminimize();
         let _ = main.set_focus();

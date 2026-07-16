@@ -7,48 +7,33 @@
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:transparent}
 body{cursor:crosshair;user-select:none}
-.mask{position:fixed;background:rgba(0,0,0,0.45);pointer-events:none;z-index:5}
-#sel{position:fixed;border:2px solid rgba(255,50,50,0.9);background:rgba(255,50,50,0.06);pointer-events:none;display:none;z-index:10}
-#close{position:fixed;top:12px;right:12px;z-index:20;width:32px;height:32px;border-radius:50%;border:none;background:rgba(0,0,0,0.5);color:#fff;font:18px sans-serif;cursor:pointer}
+#dim{position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.45);pointer-events:none;z-index:5}
+#sel{position:fixed;border:2px solid rgba(255,50,50,0.9);background:rgba(255,50,50,0.08);pointer-events:none;display:none;z-index:10}
+#close{position:fixed;top:12px;right:12px;z-index:20;width:32px;height:32px;border-radius:50%;border:none;background:rgba(0,0,0,0.6);color:#fff;font:18px sans-serif;cursor:pointer}
 #close:hover{background:rgba(200,50,50,0.8)}
-#log{position:fixed;bottom:8px;left:8px;z-index:30;color:#0f0;font:11px monospace;white-space:pre-wrap;max-width:80vw;text-shadow:0 0 2px #000;pointer-events:none}
+#log{position:fixed;bottom:8px;left:8px;z-index:30;color:#0f0;font:11px Consolas,monospace;white-space:pre-wrap;max-width:80vw;text-shadow:0 0 3px #000;pointer-events:none}
 </style>
 </head>
 <body>
-<div id="m-top" class="mask" style="top:0;left:0;width:100vw;height:100vh"></div>
-<div id="m-bottom" class="mask" style="display:none"></div>
-<div id="m-left" class="mask" style="display:none"></div>
-<div id="m-right" class="mask" style="display:none"></div>
+<div id="dim"></div>
 <div id="sel"></div>
 <button id="close">✕</button>
 <div id="log"></div>
 <script>
 const invoke=window.__TAURI_INTERNALS__.invoke;
 const sel=document.getElementById('sel');
-const mTop=document.getElementById('m-top');
-const mBottom=document.getElementById('m-bottom');
-const mLeft=document.getElementById('m-left');
-const mRight=document.getElementById('m-right');
+const dim=document.getElementById('dim');
 const logEl=document.getElementById('log');
 let sx=0,sy=0,dragging=false;
-const L=(...a)=>{logEl.textContent+=a.join(' ')+'\n';console.log(...a)};
+const L=(...a)=>{const s=a.join(' ');logEl.textContent+=s+'\n';console.log(...a);if(logEl.textContent.split('\n').length>30)logEl.textContent=logEl.textContent.split('\n').slice(-25).join('\n')};
 
-L('overlay loaded, dpr=',window.devicePixelRatio,'screenX=',window.screenX,'screenY=',window.screenY);
+L('overlay loaded, dpr='+window.devicePixelRatio+' screenX='+window.screenX);
 
-function updateMasks(x,y,w,h){
-  const vw=window.innerWidth, vh=window.innerHeight;
-  mTop.style.height=y+'px';
-  mTop.style.display='block';
-  mBottom.style.display='block';
-  mBottom.style.top=(y+h)+'px';mBottom.style.height=(vh-y-h)+'px';
-  mLeft.style.display='block';
-  mLeft.style.top=y+'px';mLeft.style.width=x+'px';mLeft.style.height=h+'px';
-  mRight.style.display='block';
-  mRight.style.top=y+'px';mRight.style.left=(x+w)+'px';mRight.style.width=(vw-x-w)+'px';mRight.style.height=h+'px';
+function updateMask(x,y,w,h){
+  dim.style.clipPath='polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% '+y+'px, '+x+'px '+y+'px, '+x+'px '+(y+h)+'px, '+(x+w)+'px '+(y+h)+'px, '+(x+w)+'px '+y+'px, 0% '+y+'px)';
 }
 
 document.addEventListener('mousedown',e=>{
-  L('mousedown',e.clientX,e.clientY);
   sx=e.clientX;sy=e.clientY;dragging=true;
   sel.style.display='block';
   sel.style.left=sx+'px';sel.style.top=sy+'px';
@@ -57,38 +42,38 @@ document.addEventListener('mousedown',e=>{
 
 document.addEventListener('mousemove',e=>{
   if(!dragging)return;
-  const x=Math.min(sx,e.clientX),y=Math.min(sy,e.clientY),
-        w=Math.abs(e.clientX-sx),h=Math.abs(e.clientY-sy);
+  var x=Math.min(sx,e.clientX),y=Math.min(sy,e.clientY),
+      w=Math.abs(e.clientX-sx),h=Math.abs(e.clientY-sy);
   sel.style.left=x+'px';sel.style.top=y+'px';
   sel.style.width=w+'px';sel.style.height=h+'px';
-  updateMasks(x,y,w,h);
+  updateMask(x,y,w,h);
 });
 
 document.addEventListener('mouseup',async e=>{
   if(!dragging)return;
   dragging=false;
   sel.style.display='none';
-  const x=Math.min(sx,e.clientX),y=Math.min(sy,e.clientY),
-        w=Math.abs(e.clientX-sx),h=Math.abs(e.clientY-sy);
-  L('mouseup x=',x,'y=',y,'w=',w,'h=',h);
-  if(w<10||h<10){L('selection too small, closing');await invoke('close_overlay');return}
-  const dpr=window.devicePixelRatio||1;
-  const gx=Math.round((window.screenX+x)*dpr);
-  const gy=Math.round((window.screenY+y)*dpr);
-  L('calling crop_and_recognize gx=',gx,'gy=',gy,'w=',w,'h=',h);
+  var x=Math.min(sx,e.clientX),y=Math.min(sy,e.clientY),
+      w=Math.abs(e.clientX-sx),h=Math.abs(e.clientY-sy);
+  L('mouseup x='+x+' y='+y+' w='+w+' h='+h);
+  if(w<10||h<10){L('selection too small');await invoke('close_overlay');return}
+  var dpr=window.devicePixelRatio||1;
+  var gx=Math.round((window.screenX+x)*dpr);
+  var gy=Math.round((window.screenY+y)*dpr);
+  L('calling crop_and_recognize gx='+gx+' gy='+gy+' w='+w+' h='+h);
   try{
-    const field=await invoke('crop_and_recognize',{x:gx,y:gy,w,h});
-    L('crop_and_recognize OK, field length=',field?.length);
+    await invoke('crop_and_recognize',{x:gx,y:gy,w,h});
+    L('crop_and_recognize OK');
   }catch(err){
-    L('crop_and_recognize ERROR:',String(err));
-    await invoke('close_overlay');
+    L('crop_and_recognize ERROR: '+String(err));
   }
+  await invoke('close_overlay');
 });
 
 document.addEventListener('keydown',async e=>{
-  if(e.key==='Escape'){L('Escape pressed');await invoke('close_overlay');}
+  if(e.key==='Escape')await invoke('close_overlay');
 });
-document.getElementById('close').onclick=async()=>{L('close button clicked');await invoke('close_overlay')};
+document.getElementById('close').onclick=async()=>await invoke('close_overlay');
 </script>
 </body>
 </html>
