@@ -7,18 +7,66 @@ use base64::Engine;
 use serde::Serialize;
 /// Tetr.io piece reference colors (R, G, B) — user-provided skin values
 const REFERENCE_COLORS: &[(u8, u8, u8, char)] = &[
-    (52,  181, 133, 'I'),  // 34b585 cyan/teal
-    (179, 153,  50, 'O'),  // b39932 yellow/gold
-    (164,  62, 154, 'T'),  // a43e9a purple/magenta
-    (131, 179,  50, 'S'),  // 83b332 green/lime
-    (180,  52,  59, 'Z'),  // b4343b red
-    (79,   62, 164, 'J'),  // 4f3ea4 blue
-    (178,  98,  49, 'L'),  // b26231 orange/brown
-    (128, 128, 128, 'X'),  // garbage
+    (52, 181, 133, 'I'),  // 34b585 cyan/teal
+    (179, 153, 50, 'O'),  // b39932 yellow/gold
+    (164, 62, 154, 'T'),  // a43e9a purple/magenta
+    (131, 179, 50, 'S'),  // 83b332 green/lime
+    (180, 52, 59, 'Z'),   // b4343b red
+    (79, 62, 164, 'J'),   // 4f3ea4 blue
+    (178, 98, 49, 'L'),   // b26231 orange/brown
+    (128, 128, 128, 'X'), // garbage
 ];
 
 /// Expected number of columns in a Tetris board
 const NUM_COLS: usize = 10;
+
+/// Detect grid cell width by finding the dominant horizontal period.
+/// Scans a 1px strip from the middle for sharp color transitions.
+fn detect_cell_width(img: &RgbImage) -> f64 {
+    let (width, height) = img.dimensions();
+    if width < 10 || height < 10 {
+        return 10.0;
+    }
+
+    let y = height / 2;
+    let mut colors = Vec::with_capacity(width as usize);
+    for x in 0..width {
+        let px = img.get_pixel(x, y);
+        colors.push((px[0], px[1], px[2]));
+    }
+
+    // Find sharp transitions (grid lines)
+    let mut transitions = Vec::new();
+    for x in 1..width as usize {
+        if color_distance(colors[x - 1], colors[x]) > 0.25 {
+            transitions.push(x);
+        }
+    }
+
+    if transitions.len() < 2 {
+        return width as f64 / 10.0;
+    }
+
+    // Compute gaps between transitions
+    let gaps: Vec<usize> = transitions.windows(2).map(|w| w[1] - w[0]).collect();
+    
+    // Cell period = sum of two consecutive gaps (cell content + grid line)
+    if gaps.len() >= 2 {
+        let mut periods: Vec<usize> = gaps.windows(2).map(|w| w[0] + w[1]).collect();
+        periods.sort();
+        if !periods.is_empty() {
+            return periods[periods.len() / 2].max(6) as f64;
+        }
+    }
+
+    // Fallback: median gap (might be just cell or just grid line)
+    let mut sorted_gaps = gaps;
+    sorted_gaps.sort();
+    if sorted_gaps.is_empty() {
+        return width as f64 / 10.0;
+    }
+    sorted_gaps[sorted_gaps.len() / 2].max(3) as f64
+}
 
 /// Minimum HSL lightness for a cell to be considered "not empty"
 const MIN_LIGHTNESS: f64 = 25.0;
@@ -134,7 +182,10 @@ pub fn recognize_field(img: &RgbImage) -> Result<String, String> {
         return Err("Image too small (minimum 10×10 pixels)".to_string());
     }
 
-    let cell_w = width as f64 / NUM_COLS as f64;
+    let cell_w = detect_cell_width(img);
+    // Clamp: cell shouldn't be more than 2x the expected (width/10)
+    let max_cell = (width as f64 / 8.0).max(10.0);
+    let cell_w = cell_w.min(max_cell);
     // Use ceil to guarantee we cover all rows, then dedup handles doubles
     let n_rows = (height as f64 / cell_w).ceil() as usize;
     let n_rows = n_rows.max(1).min(40);
@@ -150,8 +201,8 @@ pub fn recognize_field(img: &RgbImage) -> Result<String, String> {
 
         let mut line = String::with_capacity(NUM_COLS);
         for col in 0..NUM_COLS {
-            let x_left = col as f64 * (width as f64 / NUM_COLS as f64);
-            let x_right = (col + 1) as f64 * (width as f64 / NUM_COLS as f64);
+            let x_left = col as f64 * cell_w;
+            let x_right = (col + 1) as f64 * cell_w;
             let x_center = ((x_left + x_right) / 2.0) as u32;
             let x_center = x_center.min(width - 1);
 
