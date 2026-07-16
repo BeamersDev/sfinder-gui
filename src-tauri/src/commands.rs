@@ -304,20 +304,20 @@ pub async fn crop_and_recognize(
 
     match crate::recognition::crop_and_recognize(x, y, w, h) {
         Ok(field) => {
-            // Restore main window BEFORE emitting event (so JS listener is active)
+            // Restore main window and emit directly to it
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.unminimize();
                 let _ = main.set_focus();
+                let _ = main.emit("screenshot-result", &field);
             }
-            let _ = app.emit("screenshot-result", &field);
             Ok(field)
         }
         Err(e) => {
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.unminimize();
                 let _ = main.set_focus();
+                let _ = main.emit("screenshot-error", &e);
             }
-            let _ = app.emit("screenshot-error", &e);
             Err(e)
         }
     }
