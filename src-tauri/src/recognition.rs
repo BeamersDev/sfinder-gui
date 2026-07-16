@@ -5,17 +5,15 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use base64::Engine;
 use serde::Serialize;
-/// Tetr.io piece reference colors (R, G, B)
-/// Based on reported misclassifications: O→L, L→Z, J→T
-/// Widened separation between yellow/orange, orange/red, blue/purple
+/// Tetr.io piece reference colors (R, G, B) — user-provided skin values
 const REFERENCE_COLORS: &[(u8, u8, u8, char)] = &[
-    (60,  200, 180, 'I'),  // cyan
-    (255, 230,  50, 'O'),  // yellow (brighter, more saturated)
-    (120,  80, 180, 'T'),  // purple (more blue-shifted)
-    (175, 215,  75, 'S'),  // green
-    (230,  60,  60, 'Z'),  // red (more saturated)
-    (70,  100, 230, 'J'),  // blue (more saturated, brighter)
-    (255, 150,  10, 'L'),  // orange (stronger orange, less red)
+    (52,  181, 133, 'I'),  // 34b585 cyan/teal
+    (179, 153,  50, 'O'),  // b39932 yellow/gold
+    (164,  62, 154, 'T'),  // a43e9a purple/magenta
+    (131, 179,  50, 'S'),  // 83b332 green/lime
+    (180,  52,  59, 'Z'),  // b4343b red
+    (79,   62, 164, 'J'),  // 4f3ea4 blue
+    (178,  98,  49, 'L'),  // b26231 orange/brown
     (128, 128, 128, 'X'),  // garbage
 ];
 
