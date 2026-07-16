@@ -1,4 +1,4 @@
-use image::{codecs::png::PngEncoder, RgbImage};
+use image::{codecs::png::PngEncoder, ImageEncoder, RgbImage};
 use screenshots::Screen;
 use base64::Engine;
 use serde::Serialize;
