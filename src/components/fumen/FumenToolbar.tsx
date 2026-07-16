@@ -13,11 +13,12 @@ function fieldStrToFumen(fieldStr: string): string | null {
   if (lines.length === 0 || lines[0].length !== 10) return null;
   try {
     const field = Field.create('_'.repeat(10 * 23), '_'.repeat(10));
+    // lines[0] = top of image, fumen row 0 = bottom → reverse
     for (let row = 0; row < lines.length; row++) {
-      const line = lines[lines.length - 1 - row];
+      const line = lines[row];
       for (let col = 0; col < 10; col++) {
         const ch = line[col];
-        if (PIECE_CHARS.has(ch)) field.set(col, row, ch as any);
+        if (PIECE_CHARS.has(ch)) field.set(col, lines.length - 1 - row, ch as any);
       }
     }
     return encoder.encode([{ field }]);

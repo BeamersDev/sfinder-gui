@@ -141,8 +141,9 @@ pub fn recognize_field(img: &RgbImage) -> Result<String, String> {
 
     let mut field = String::new();
 
-    // Scan rows bottom-to-top (fumen convention: row 0 = bottom)
-    for row in (0..n_rows).rev() {
+    // Scan rows top-to-bottom so first line of output = top of board
+    // (fumen decoder puts lines[0] at top of field)
+    for row in 0..n_rows {
         let y_top = row as f64 * (height as f64 / n_rows as f64);
         let y_bot = (row + 1) as f64 * (height as f64 / n_rows as f64);
         let y_center = ((y_top + y_bot) / 2.0) as u32;
