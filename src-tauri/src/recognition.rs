@@ -252,7 +252,7 @@ pub fn recognize_field(img: &RgbImage) -> Result<(String, String), String> {
 
     let palette = detect_palette(img);
     let cell_w = detect_cell_width(img);
-    let n_rows = ((board_height as f64 / cell_w).round() as usize).max(1).min(40);
+    let n_rows = ((board_height as f64 / cell_w).round() as usize).clamp(1, 40);
 
     let mut raw_lines: Vec<String> = Vec::new();
 
@@ -378,7 +378,7 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
         let small_rgb = image::DynamicImage::ImageRgba8(small).to_rgb8();
         let mut png_buf = Cursor::new(Vec::new());
         {
-            let mut encoder = PngEncoder::new(&mut png_buf);
+            let encoder = PngEncoder::new(&mut png_buf);
             encoder
                 .write_image(
                     small_rgb.as_raw(),
@@ -430,7 +430,7 @@ pub fn crop_and_recognize(x: i32, y: i32, w: u32, h: u32) -> Result<String, Stri
     let debug_path = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| std::env::temp_dir())
+        .unwrap_or_else(std::env::temp_dir)
         .join("sfinder_cropped_debug.png");
     if let Err(e) = cropped.save(&debug_path) {
         eprintln!("Failed to save debug image: {}", e);

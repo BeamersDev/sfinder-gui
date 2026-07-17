@@ -243,9 +243,9 @@ pub async fn start_capture(app: tauri::AppHandle) -> Result<(), String> {
     let screens = Screen::all().map_err(|e| format!("Failed to list screens: {}", e))?;
     let (min_x, min_y, max_x, max_y) = screens.iter().fold(
         (i32::MAX, i32::MAX, i32::MIN, i32::MIN),
-        |(mx, my, Mx, My), s| {
+        |(mx, my, mx2, my2), s| {
             let info = s.display_info;
-            (mx.min(info.x), my.min(info.y), Mx.max(info.x + info.width as i32), My.max(info.y + info.height as i32))
+            (mx.min(info.x), my.min(info.y), mx2.max(info.x + info.width as i32), my2.max(info.y + info.height as i32))
         },
     );
     let (win_w, win_h) = if min_x <= max_x {
