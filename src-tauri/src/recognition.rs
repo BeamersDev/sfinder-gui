@@ -399,6 +399,27 @@ pub fn recognize_field(img: &RgbImage) -> Result<(String, String), String> {
 
     let trimmed = &trimmed[new_start..new_end.max(new_start)];
 
+    // Trim all-garbage rows from edges (garbage buffer above board)
+    let mut final_start = 0;
+    for (i, line) in trimmed.iter().enumerate() {
+        if line.chars().all(|c| c == 'X' || c == '_') && line.chars().filter(|c| c == 'X').count() >= 5 {
+            final_start = i + 1;
+        } else {
+            break;
+        }
+    }
+
+    let mut final_end = trimmed.len();
+    for (i, line) in trimmed.iter().enumerate().rev() {
+        if line.chars().all(|c| c == 'X' || c == '_') && line.chars().filter(|c| c == 'X').count() >= 5 {
+            final_end = i;
+        } else {
+            break;
+        }
+    }
+
+    let trimmed = &trimmed[final_start..final_end.max(final_start)];
+
     let debug = format!(
         "palette={}, cell_w={:.1}px, n_rows={}, trimmed={}..{}",
         palette.name, cell_w, n_rows, start, end,
