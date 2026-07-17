@@ -9,7 +9,8 @@ import { Field, encoder } from 'tetris-fumen';
 const PIECE_CHARS = new Set(['I', 'O', 'T', 'S', 'Z', 'J', 'L', 'X']);
 
 function fieldStrToFumen(fieldStr: string): string | null {
-  const lines = fieldStr.trim().split('\n').filter(Boolean);
+  let lines = fieldStr.trim().split('\n').filter(Boolean);
+  lines = lines.reverse(); // output[0]=visual bottom, rev so top→fumen row 0
   if (lines.length === 0) return null;
   // Pad or truncate each line to exactly 10 chars
   const padded = lines.map(line => {
