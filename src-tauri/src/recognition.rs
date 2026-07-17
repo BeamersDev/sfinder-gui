@@ -16,77 +16,81 @@ pub struct ColorPalette {
     pub colors: &'static [(u8, u8, u8, char)],
 }
 
-/// Tetr.io default skin (user's eyedropper values).
+/// Tetr.io default skin
 pub const PALETTE_TETR_IO: ColorPalette = ColorPalette {
     name: "tetr.io",
     colors: &[
-        (0, 0, 0, '_'),       // empty
-        (52, 181, 133, 'I'),  // 34b585 teal
-        (179, 153, 50, 'O'),  // b39932 yellow
-        (164, 62, 154, 'T'),  // a43e9a purple
-        (131, 179, 50, 'S'),  // 83b332 green
-        (180, 52, 59, 'Z'),   // b4343b red
-        (79, 62, 164, 'J'),   // 4f3ea4 blue
-        (178, 98, 49, 'L'),   // b26231 orange
-        (67, 67, 67, 'X'),    // 434343 garbage
+        (0, 0, 0, '_'),
+        (52, 181, 133, 'I'),
+        (179, 153, 50, 'O'),
+        (164, 62, 154, 'T'),
+        (131, 179, 50, 'S'),
+        (180, 52, 59, 'Z'),
+        (79, 62, 164, 'J'),
+        (178, 98, 49, 'L'),
+        (67, 67, 67, 'X'),
     ],
 };
 
-/// Jstris default skin (user-provided hex values).
+/// Jstris default skin
 pub const PALETTE_JSTRIS: ColorPalette = ColorPalette {
     name: "jstris",
     colors: &[
-        (0, 0, 0, '_'),       // 000000 empty
-        (17, 149, 205, 'I'),  // 1195cd cyan/blue
-        (227, 159, 2, 'O'),   // e39f02 yellow
-        (175, 41, 138, 'T'),  // af298a purple
-        (89, 177, 1, 'S'),    // 59b101 green
-        (215, 15, 55, 'Z'),   // d70f37 red
-        (33, 65, 198, 'J'),   // 2141c6 blue
-        (227, 91, 2, 'L'),    // e35b02 orange
-        (153, 153, 153, 'X'), // 999999 garbage
+        (0, 0, 0, '_'),
+        (17, 149, 205, 'I'),
+        (227, 159, 2, 'O'),
+        (175, 41, 138, 'T'),
+        (89, 177, 1, 'S'),
+        (215, 15, 55, 'Z'),
+        (33, 65, 198, 'J'),
+        (227, 91, 2, 'L'),
+        (153, 153, 153, 'X'),
     ],
 };
 
-/// All available palettes for auto-detection.
 pub const PALETTES: &[ColorPalette] = &[PALETTE_TETR_IO, PALETTE_JSTRIS];
 
-/// Auto-detect which palette matches the image by comparing average color distances.
 fn detect_palette(img: &RgbImage) -> &'static ColorPalette {
     let (width, height) = img.dimensions();
-    let sample_ys = [height / 3, height / 2, 2 * height / 3];
 
-    // Collect high-saturation sample points from bottom 60%
+    // Collect high-saturation samples from the middle 3 rows of the board
+    let y_start = height * 3 / 5;
+    let y_end = height * 4 / 5;
+
     let mut samples: Vec<(u8, u8, u8)> = Vec::new();
-    for &y in &sample_ys {
+    for y in y_start..y_end {
         for x in 0..width {
             let px = img.get_pixel(x, y);
             let (_, s, l) = rgb_to_hsl(px[0], px[1], px[2]);
-            if s > 30.0 && l > 20.0 && l < 80.0 {
+            if s > 25.0 && l > 25.0 && l < 80.0 {
                 samples.push((px[0], px[1], px[2]));
             }
         }
     }
-
     if samples.len() < 10 {
-        return &PALETTE_TETR_IO; // default
+        return &PALETTE_TETR_IO;
     }
 
-    // For each palette, compute average distance from samples to nearest color
-    let mut best_palette = &PALETTE_TETR_IO;
+    // For each palette, compute average distance from samples to nearest non-grey color
+    let mut best_palette = &PALETTE_TETR_IO as &'static ColorPalette;
     let mut best_score = f64::MAX;
 
     for palette in PALETTES {
         let mut total_dist = 0.0;
         let mut count = 0;
-        for &(r, g, b) in &samples {
+        for &(ref_r, ref_g, ref_b) in samples.iter().take(200) {
+            // Skip very grey samples
+            let (_, s, _) = rgb_to_hsl(ref_r, ref_g, ref_b);
+            if s < 15.0 {
+                continue;
+            }
             let mut min_dist = f64::MAX;
-            for &(ref_r, ref_g, ref_b, pc) in palette.colors {
+            let (y1, u1, v1) = rgb_to_yuv(ref_r, ref_g, ref_b);
+            for &(pr, pg, pb, pc) in palette.colors.iter() {
                 if pc == '_' || pc == 'X' {
                     continue;
                 }
-                let (y1, u1, v1) = rgb_to_yuv(r, g, b);
-                let (y2, u2, v2) = rgb_to_yuv(ref_r, ref_g, ref_b);
+                let (y2, u2, v2) = rgb_to_yuv(pr, pg, pb);
                 let dy = y1 - y2;
                 let du = u1 - u2;
                 let dv = v1 - v2;
@@ -106,162 +110,8 @@ fn detect_palette(img: &RgbImage) -> &'static ColorPalette {
             }
         }
     }
-
     best_palette
 }
-
-// ── Grid detection ──
-
-/// Detect the board region by finding topmost and bottommost rows with significant content.
-/// Returns (y_top, y_bottom) exclusive bounds of the actual board.
-fn detect_board_region(img: &RgbImage) -> (u32, u32) {
-    let (width, height) = img.dimensions();
-    if height < 10 {
-        return (0, height);
-    }
-
-    let mut y_bottom = height;
-    let mut y_top = 0;
-
-    // Find bottommost row with >2 non-empty cells
-    for y in (0..height).rev() {
-        let mut non_empty = 0;
-        for x in 0..width {
-            let px = img.get_pixel(x, y);
-            let (_, _, l) = rgb_to_hsl(px[0], px[1], px[2]);
-            if l > 20.0 {
-                non_empty += 1;
-            }
-        }
-        if non_empty > 2 {
-            y_bottom = y + 1;
-            break;
-        }
-    }
-
-    // Find topmost row with >2 non-empty cells
-    for y in 0..y_bottom {
-        let mut non_empty = 0;
-        for x in 0..width {
-            let px = img.get_pixel(x, y);
-            let (_, _, l) = rgb_to_hsl(px[0], px[1], px[2]);
-            if l > 20.0 {
-                non_empty += 1;
-            }
-        }
-        if non_empty > 2 {
-            y_top = y;
-            break;
-        }
-    }
-
-    (y_top, y_bottom)
-}
-
-/// Detect grid cell width by finding vertical edges of blocks.
-/// Samples only the bottom 60% (skips active pieces at top).
-fn detect_cell_width(img: &RgbImage) -> f64 {
-    let (width, height) = img.dimensions();
-    if width < 10 || height < 10 {
-        return width as f64 / 10.0;
-    }
-
-    let y_start = height / 5;
-    let sample_ys = [
-        y_start + (height - y_start) / 4,
-        y_start + (height - y_start) / 2,
-        y_start + 3 * (height - y_start) / 4,
-    ];
-    let mut all_edges: Vec<u32> = Vec::new();
-
-    for &y in &sample_ys {
-        let y = y.min(height - 1);
-        let bg_lum: f64 = (0..10.min(width as usize))
-            .map(|x| {
-                let px = img.get_pixel(x as u32, y);
-                0.299 * px[0] as f64 + 0.587 * px[1] as f64 + 0.114 * px[2] as f64
-            })
-            .sum::<f64>() / 10.0_f64.min(width as f64);
-
-        let mut prev_above = false;
-        let mut edges: Vec<u32> = Vec::new();
-        for x in 0..width {
-            let px = img.get_pixel(x, y);
-            let lum = 0.299 * px[0] as f64 + 0.587 * px[1] as f64 + 0.114 * px[2] as f64;
-            let is_above = lum > bg_lum + 15.0;
-            if is_above && !prev_above {
-                edges.push(x);
-            }
-            prev_above = is_above;
-        }
-        all_edges.extend(edges);
-    }
-
-    if all_edges.len() < 20 {
-        return width as f64 / 10.0;
-    }
-
-    all_edges.sort();
-    let mut groups: Vec<Vec<u32>> = Vec::new();
-    for &edge in &all_edges {
-        if let Some(last_group) = groups.last_mut() {
-            let avg = last_group.iter().sum::<u32>() / last_group.len() as u32;
-            if (edge as i32 - avg as i32).abs() <= 5 {
-                last_group.push(edge);
-                continue;
-            }
-        }
-        groups.push(vec![edge]);
-    }
-
-    if groups.len() < 8 {
-        return width as f64 / 10.0;
-    }
-
-    let mut group_x: Vec<u32> = groups
-        .iter()
-        .map(|g| {
-            let mut sorted = g.clone();
-            sorted.sort();
-            sorted[sorted.len() / 2]
-        })
-        .collect();
-    group_x.sort_unstable();
-
-    let gaps: Vec<u32> = group_x.windows(2).map(|w| w[1] - w[0]).collect();
-    if gaps.is_empty() {
-        return width as f64 / 10.0;
-    }
-
-    let mut gap_hist: Vec<(u32, usize)> = Vec::new();
-    for &gap in &gaps {
-        let mut found = false;
-        for entry in gap_hist.iter_mut() {
-            if (entry.0 as i32 - gap as i32).abs() <= 3 {
-                entry.1 += 1;
-                entry.0 = (entry.0 + gap) / 2;
-                found = true;
-                break;
-            }
-        }
-        if !found {
-            gap_hist.push((gap, 1));
-        }
-    }
-
-    gap_hist.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
-
-    if let Some(&(best_gap, _)) = gap_hist.first() {
-        let cell_w = best_gap.max(4) as f64;
-        if cell_w <= width as f64 * 0.25 {
-            return cell_w;
-        }
-    }
-
-    width as f64 / 10.0
-}
-
-// ── Color utilities ──
 
 fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
     let r = r as f64 / 255.0;
@@ -293,20 +143,22 @@ fn rgb_to_yuv(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
     (y, u, v)
 }
 
-// ── Classification ──
-
-/// Match a pixel to a Tetris piece type using a specific palette.
 pub fn match_piece_color_with_palette(r: u8, g: u8, b: u8, palette: &ColorPalette) -> char {
-    // Stage 1: greyscale detection (use HSL saturation for robustness)
     let (_, s, l) = rgb_to_hsl(r, g, b);
-    if s < 15.0 {
-        if l > 25.0 {
+    let max_c = r.max(g).max(b);
+    let min_c = r.min(g).min(b);
+    let rgb_spread = max_c - min_c;
+
+    if s < 12.0 || rgb_spread < 15 {
+        if l > 20.0 && l < 75.0 && rgb_spread < 25 && l > 30.0 {
             return 'X';
         }
-        return '_';
+        if l <= 25.0 {
+            return '_';
+        }
+        return 'X';
     }
 
-    // Stage 2: YUV nearest match
     let (y, u, v) = rgb_to_yuv(r, g, b);
     let mut best = '_';
     let mut best_dist = f64::MAX;
@@ -324,11 +176,10 @@ pub fn match_piece_color_with_palette(r: u8, g: u8, b: u8, palette: &ColorPalett
             best = pc;
         }
     }
-    if best_dist < 0.15 {
+    if best_dist < 0.3 {
         return best;
     }
 
-    // Stage 3: fallback
     if l > 20.0 {
         'X'
     } else {
@@ -336,21 +187,63 @@ pub fn match_piece_color_with_palette(r: u8, g: u8, b: u8, palette: &ColorPalett
     }
 }
 
-/// Auto-detect palette and match.
-pub fn match_piece_color(r: u8, g: u8, b: u8, palette: &ColorPalette) -> char {
-    match_piece_color_with_palette(r, g, b, palette)
+pub fn detect_board_region(img: &RgbImage) -> (u32, u32) {
+    let (width, height) = img.dimensions();
+    if height < 10 {
+        return (0, height);
+    }
+
+    let mut y_bottom = height;
+    let mut y_top = 0;
+
+    for y in (0..height).rev() {
+        let mut non_empty = 0;
+        for x in 0..width {
+            let px = img.get_pixel(x, y);
+            let (_, _, l) = rgb_to_hsl(px[0], px[1], px[2]);
+            if l > 30.0 {
+                non_empty += 1;
+            }
+        }
+        if non_empty > 8 {
+            y_bottom = y + 1;
+            break;
+        }
+    }
+
+    for y in 0..y_bottom {
+        let mut non_empty = 0;
+        for x in 0..width {
+            let px = img.get_pixel(x, y);
+            let (_, _, l) = rgb_to_hsl(px[0], px[1], px[2]);
+            if l > 30.0 {
+                non_empty += 1;
+            }
+        }
+        if non_empty > 8 {
+            y_top = y;
+            break;
+        }
+    }
+
+    (y_top, y_bottom)
 }
 
-// ── Recognition ──
+fn detect_cell_width(img: &RgbImage) -> f64 {
+    let (width, height) = img.dimensions();
+    if width < 10 || height < 10 {
+        return width as f64 / 10.0;
+    }
+    // Simple approach: image width / 10
+    width as f64 / 10.0
+}
 
-/// Recognize a Tetris board from an RGB image, returns (field, debug_info).
 pub fn recognize_field(img: &RgbImage) -> Result<(String, String), String> {
     let (width, height) = img.dimensions();
     if width < 10 || height < 10 {
-        return Err("Image too small (minimum 10×10 pixels)".to_string());
+        return Err("Image too small".to_string());
     }
 
-    // Detect actual board region (skip UI elements above/below)
     let (y_top, y_bottom) = detect_board_region(img);
     let board_height = y_bottom - y_top;
     if board_height < 10 {
@@ -359,110 +252,66 @@ pub fn recognize_field(img: &RgbImage) -> Result<(String, String), String> {
 
     let palette = detect_palette(img);
     let cell_w = detect_cell_width(img);
-    let n_rows = (board_height as f64 / cell_w).ceil() as usize;
-    let n_rows = n_rows.max(1).min(40);
+    let n_rows = ((board_height as f64 / cell_w).round() as usize).max(1).min(40);
 
     let mut raw_lines: Vec<String> = Vec::new();
-    let mut debug_cells: Vec<String> = Vec::new();
 
     for row in (0..n_rows).rev() {
-        let y_top = y_top as f64 + row as f64 * cell_w;
-        let y_bot = y_top as f64 + cell_w;
-        let y_center = ((y_top + y_bot) / 2.0) as u32;
-        let y_center = y_center.min(height - 1);
+        let y_center_f = y_top as f64 + (row as f64 + 0.5) * cell_w;
+        let y_center = (y_center_f as u32).min(height - 1);
 
         let mut line = String::with_capacity(NUM_COLS);
         for col in 0..NUM_COLS {
             let x_left = col as f64 * cell_w;
             let x_right = (col + 1) as f64 * cell_w;
-            let x_center = ((x_left + x_right) / 2.0) as u32;
-            let x_center = x_center.min(width - 1);
+            let x_center_f = (x_left + x_right) / 2.0;
+            let x_center = (x_center_f as u32).min(width - 1);
 
-            // 5x5 region averaging for anti-aliased edges
-            let block_size = (cell_w / 4.0) as u32;
-            let x0 = x_center.saturating_sub(block_size);
-            let y0 = y_center.saturating_sub(block_size);
-            let x1 = (x_center + block_size).min(width - 1);
-            let y1 = (y_center + block_size).min(height - 1);
-            let mut r_sum = 0u64;
-            let mut g_sum = 0u64;
-            let mut b_sum = 0u64;
-            let mut count = 0u64;
-            for py in y0..=y1 {
-                for px in x0..=x1 {
-                    let px2 = img.get_pixel(px, py);
-                    r_sum += px2[0] as u64;
-                    g_sum += px2[1] as u64;
-                    b_sum += px2[2] as u64;
-                    count += 1;
-                }
-            }
-            let r = (r_sum / count) as u8;
-            let g = (g_sum / count) as u8;
-            let b = (b_sum / count) as u8;
-            let ch = match_piece_color_with_palette(r, g, b, palette);
+            let px = img.get_pixel(x_center, y_center);
+            let ch = match_piece_color_with_palette(px[0], px[1], px[2], palette);
             line.push(ch);
-
-            debug_cells.push(format!(
-                "r{}c{}: rgb({},{},{}) -> '{}'",
-                row, col, r, g, b, ch
-            ));
         }
         raw_lines.push(line);
     }
 
-    // Trim leading/trailing empty rows
+    // Trim all-underscore rows
     let mut start = 0;
     while start < raw_lines.len() && raw_lines[start].chars().all(|c| c == '_') {
         start += 1;
     }
     if start == raw_lines.len() {
-        return Err("Board appears empty. Is the screenshot showing a Tetris field?".to_string());
+        return Err("Board appears empty".to_string());
     }
     let mut end = raw_lines.len();
     while end > start && raw_lines[end - 1].chars().all(|c| c == '_') {
         end -= 1;
     }
 
-    let trimmed: Vec<&str> = raw_lines[start..end].iter().map(|s| s.as_str()).collect();
-
-    // Only trim all-empty rows (preserve garbage rows as they're part of the field)
-    let mut new_start = 0;
-    for (i, line) in trimmed.iter().enumerate() {
-        if line.chars().any(|c| c != '_') {
-            break;
-        }
-        new_start = i + 1;
-    }
-
-    let mut new_end = trimmed.len();
-    for (i, line) in trimmed.iter().enumerate().rev() {
-        if line.chars().any(|c| c != '_') {
-            break;
-        }
-        new_end = i;
-    }
-
-    let trimmed = &trimmed[new_start..new_end.max(new_start)];
+    let trimmed: Vec<&str> = raw_lines[start..end]
+        .iter()
+        .rev()
+        .map(|s| s.as_str())
+        .collect();
 
     let debug = format!(
         "palette={}, cell_w={:.1}px, n_rows={}, trimmed={}..{}",
-        palette.name, cell_w, n_rows, start, end,
+        palette.name,
+        cell_w,
+        n_rows,
+        start,
+        end,
     );
 
     Ok((trimmed.join("\n"), debug))
 }
 
-/// Backward-compatible: recognize and return just the field string.
 pub fn recognize_field_simple(img: &RgbImage) -> Result<String, String> {
     recognize_field(img).map(|(field, _)| field)
 }
 
-// ── File / bytes helpers ──
-
 pub fn recognize_field_from_file(path: &str) -> Result<String, String> {
     let img = image::open(path)
-        .map_err(|e| format!("Failed to open image '{}': {}", path, e))?
+        .map_err(|e| format!("Failed to open '{}': {}", path, e))?
         .to_rgb8();
     recognize_field_simple(&img)
 }
@@ -473,8 +322,6 @@ pub fn recognize_field_from_bytes(bytes: &[u8]) -> Result<String, String> {
         .to_rgb8();
     recognize_field_simple(&img)
 }
-
-// ── Screenshot capture state ──
 
 #[derive(Clone, Serialize)]
 pub struct MonitorInfo {
@@ -524,7 +371,6 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
         let img: image::RgbaImage = image::RgbaImage::from_raw(w, h, capture.as_raw().to_vec())
             .ok_or("Failed to convert captured image")?;
 
-        // Downsample for overlay (PNG, lossless)
         let scale = 2u32;
         let sw = w / scale;
         let sh = h / scale;
@@ -534,7 +380,12 @@ pub fn capture_all_monitors() -> Result<CaptureData, String> {
         {
             let mut encoder = PngEncoder::new(&mut png_buf);
             encoder
-                .write_image(small_rgb.as_raw(), sw, sh, image::ExtendedColorType::Rgb8)
+                .write_image(
+                    small_rgb.as_raw(),
+                    sw,
+                    sh,
+                    image::ExtendedColorType::Rgb8,
+                )
                 .map_err(|e| format!("Failed to encode PNG: {}", e))?;
         }
         let b64 = base64::engine::general_purpose::STANDARD.encode(png_buf.into_inner());
@@ -585,12 +436,6 @@ pub fn crop_and_recognize(x: i32, y: i32, w: u32, h: u32) -> Result<String, Stri
         eprintln!("Failed to save debug image: {}", e);
     }
 
-    let log_path = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| std::env::temp_dir())
-        .join("sfinder_classify_debug.txt");
-
     let rgb = {
         let (w, h) = (cropped.width(), cropped.height());
         let raw = cropped.as_raw();
@@ -603,10 +448,7 @@ pub fn crop_and_recognize(x: i32, y: i32, w: u32, h: u32) -> Result<String, Stri
         RgbImage::from_raw(w, h, rgb_data).ok_or("Failed to convert to RGB")?
     };
 
-    let (field, debug) = recognize_field(&rgb)?;
-    let full_debug = format!("{}\ncropped={}x{}", debug, rgb.width(), rgb.height());
-    let _ = std::fs::write(&log_path, &full_debug);
-    Ok(field)
+    recognize_field_simple(&rgb)
 }
 
 pub fn clear_capture() {
@@ -615,11 +457,9 @@ pub fn clear_capture() {
     }
 }
 
-// ── Tests ──
-
 #[cfg(test)]
 mod tests {
-    use crate::recognition::{match_piece_color_with_palette, rgb_to_hsl, PALETTE_JSTRIS};
+    use crate::recognition::*;
 
     #[test]
     fn test_rgb_to_hsl_red() {
@@ -631,18 +471,16 @@ mod tests {
 
     #[test]
     fn test_jstris_color_matching() {
-        use crate::recognition::match_piece_color_with_palette;
-
         let color_tests: &[(u8, u8, u8, char)] = &[
-            (17, 149, 205, 'I'),   // 1195cd cyan
-            (227, 159, 2, 'O'),    // e39f02 yellow
-            (175, 41, 138, 'T'),   // af298a purple
-            (89, 177, 1, 'S'),     // 59b101 green
-            (215, 15, 55, 'Z'),    // d70f37 red
-            (33, 65, 198, 'J'),    // 2141c6 blue
-            (227, 91, 2, 'L'),     // e35b02 orange
-            (153, 153, 153, 'X'),  // 999999 garbage
-            (10, 10, 10, '_'),     // empty
+            (17, 149, 205, 'I'),
+            (227, 159, 2, 'O'),
+            (175, 41, 138, 'T'),
+            (89, 177, 1, 'S'),
+            (215, 15, 55, 'Z'),
+            (33, 65, 198, 'J'),
+            (227, 91, 2, 'L'),
+            (153, 153, 153, 'X'),
+            (10, 10, 10, '_'),
         ];
 
         for (r, g, b, expected) in color_tests {
@@ -656,5 +494,80 @@ mod tests {
     }
 
     #[test]
-    fn test_garbage_rows() { /* ... */ }
+    fn test_garbage_rows() {
+        use crate::recognition::{recognize_field, rgb_to_hsl, PALETTE_TETR_IO, match_piece_color_with_palette};
+
+        let cell_size = 32u32;
+        let cols = 10u32;
+        let rows = 23u32;
+        let width = cols * cell_size;
+        let height = rows * cell_size;
+
+        let img = image::RgbImage::from_fn(width, height, |x, y| {
+            let row = y / cell_size;
+            let col = x / cell_size;
+            let cx = x % cell_size;
+            let cy = y % cell_size;
+
+            if row < 6 {
+                return image::Rgb([10, 10, 15]);
+            }
+
+            if row < 19 {
+                let bevel = if cx < 3 || cy < 3 || cx >= cell_size - 3 || cy >= cell_size - 3 {
+                    80
+                } else {
+                    150
+                };
+                return image::Rgb([bevel, bevel, bevel + 5]);
+            }
+
+            match row {
+                22 => match col {
+                    0 => image::Rgb([52, 181, 133]),
+                    1 => image::Rgb([180, 52, 59]),
+                    2 => image::Rgb([180, 52, 59]),
+                    3 => image::Rgb([10, 10, 15]),
+                    4 => image::Rgb([164, 62, 154]),
+                    5 => image::Rgb([10, 10, 15]),
+                    6 => image::Rgb([178, 98, 49]),
+                    7 => image::Rgb([178, 98, 49]),
+                    8 => image::Rgb([164, 62, 154]),
+                    9 => image::Rgb([164, 62, 154]),
+                    _ => image::Rgb([10, 10, 15]),
+                },
+                21 => match col {
+                    0 => image::Rgb([180, 52, 59]),
+                    1 => image::Rgb([180, 52, 59]),
+                    6 => image::Rgb([79, 62, 164]),
+                    7 => image::Rgb([79, 62, 164]),
+                    8 => image::Rgb([79, 62, 164]),
+                    9 => image::Rgb([164, 62, 154]),
+                    _ => image::Rgb([10, 10, 15]),
+                },
+                20 => match col {
+                    6 => image::Rgb([79, 62, 164]),
+                    8 => image::Rgb([179, 153, 50]),
+                    9 => image::Rgb([179, 153, 50]),
+                    _ => image::Rgb([10, 10, 15]),
+                },
+                19 => match col {
+                    8 => image::Rgb([179, 153, 50]),
+                    9 => image::Rgb([179, 153, 50]),
+                    _ => image::Rgb([10, 10, 15]),
+                },
+                _ => image::Rgb([10, 10, 15]),
+            }
+        });
+
+        let (field, debug) = recognize_field(&img).expect("Recognition failed");
+        eprintln!("Debug: {}", debug);
+        eprintln!("Result:\n{}", field);
+
+        let lines: Vec<&str> = field.lines().collect();
+        assert!(lines.len() >= 16, "Expected >= 16 lines, got {}: {}", lines.len(), field);
+
+        let max_x_count = lines.iter().filter(|l| l.chars().all(|c| c == 'X')).count();
+        assert!(max_x_count >= 8, "Expected >= 8 all-X lines (garbage), got {}", max_x_count);
+    }
 }

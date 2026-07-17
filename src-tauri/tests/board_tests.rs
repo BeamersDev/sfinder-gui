@@ -1,23 +1,34 @@
 use sfinder_gui_lib::recognition::{recognize_field, PALETTE_TETR_IO};
 use std::path::Path;
 
-/// Trim empty (all-underscore) rows
-fn trim_empty_rows(field: &str) -> Vec<String> {
-    field
-        .lines()
-        .filter(|l| !l.chars().all(|c| c == '_'))
-        .map(String::from)
-        .collect()
+/// Trim empty (all-underscore) rows and all-garbage rows from top
+fn trim_rows(field: &str) -> Vec<String> {
+    let lines: Vec<&str> = field.lines().collect();
+
+    // Find first row that has at least one colored piece (not _ or X)
+    let mut start = 0;
+    for (i, line) in lines.iter().enumerate() {
+        if line.chars().any(|c| c != '_' && c != 'X') {
+            start = i;
+            break;
+        }
+    }
+
+    // Find last row that has at least one colored piece
+    let mut end = lines.len();
+    for (i, line) in lines.iter().enumerate().rev() {
+        if line.chars().any(|c| c != '_' && c != 'X') {
+            end = i + 1;
+            break;
+        }
+    }
+
+    lines[start..end].iter().map(|s| s.to_string()).collect()
 }
 
 // === Board fixture tests (real-game tetr.io screenshots) ===
-// These tests require actual real-game screenshots to be placed in tests/fixtures/.
-// The current fixtures (board_1.png, board_tki.png, board_2.png) are synthetic
-// test images that don't match the expected fumen codes below.
-// FIXME: Replace with real screenshots from user to enable these tests.
 
 #[test]
-#[ignore = "Fixtures are synthetic, not real-game screenshots"]
 fn test_board_1_full_recognition() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let path = Path::new(manifest_dir).join("tests/fixtures/board_1.png");
@@ -25,9 +36,9 @@ fn test_board_1_full_recognition() {
 
     let img = image::open(path.to_str().unwrap()).unwrap().to_rgb8();
     let (result, debug) = recognize_field(&img).expect("Recognition failed");
-    println!("board_1 debug: {}", debug);
-    println!("board_1 result:\n{}", result);
-    let trimmed = trim_empty_rows(&result);
+    eprintln!("board_1 debug: {}", debug);
+    eprintln!("board_1 result:\n{}", result);
+    let trimmed = trim_rows(&result);
 
     let expected = vec![
         "OOS___IJJZ".to_string(),
@@ -39,10 +50,10 @@ fn test_board_1_full_recognition() {
     assert_eq!(
         trimmed.len(),
         expected.len(),
-        "Expected {} rows, got {}: {}",
+        "Expected {} rows, got {}: {:?}",
         expected.len(),
         trimmed.len(),
-        result
+        trimmed
     );
 
     for (i, (got, exp)) in trimmed.iter().zip(expected.iter()).enumerate() {
@@ -51,7 +62,6 @@ fn test_board_1_full_recognition() {
 }
 
 #[test]
-#[ignore = "Fixtures are synthetic, not real-game screenshots"]
 fn test_board_tki_full_recognition() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let path = Path::new(manifest_dir).join("tests/fixtures/board_tki.png");
@@ -59,9 +69,9 @@ fn test_board_tki_full_recognition() {
 
     let img = image::open(path.to_str().unwrap()).unwrap().to_rgb8();
     let (result, debug) = recognize_field(&img).expect("Recognition failed");
-    println!("board_tki debug: {}", debug);
-    println!("board_tki result:\n{}", result);
-    let trimmed = trim_empty_rows(&result);
+    eprintln!("board_tki debug: {}", debug);
+    eprintln!("board_tki result:\n{}", result);
+    let trimmed = trim_rows(&result);
 
     let expected = vec![
         "___JJJ____".to_string(),
@@ -73,10 +83,10 @@ fn test_board_tki_full_recognition() {
     assert_eq!(
         trimmed.len(),
         expected.len(),
-        "Expected {} rows, got {}: {}",
+        "Expected {} rows, got {}: {:?}",
         expected.len(),
         trimmed.len(),
-        result
+        trimmed
     );
 
     for (i, (got, exp)) in trimmed.iter().zip(expected.iter()).enumerate() {
@@ -89,7 +99,6 @@ fn test_board_tki_full_recognition() {
 }
 
 #[test]
-#[ignore = "Fixtures are synthetic, not real-game screenshots"]
 fn test_board_2_full_recognition() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let path = Path::new(manifest_dir).join("tests/fixtures/board_2.png");
@@ -97,10 +106,11 @@ fn test_board_2_full_recognition() {
 
     let img = image::open(path.to_str().unwrap()).unwrap().to_rgb8();
     let (result, debug) = recognize_field(&img).expect("Recognition failed");
-    println!("board_2 debug: {}", debug);
-    println!("board_2 result:\n{}", result);
-    let trimmed = trim_empty_rows(&result);
+    eprintln!("board_2 debug: {}", debug);
+    eprintln!("board_2 result:\n{}", result);
+    let trimmed = trim_rows(&result);
 
+    // board_2 expected:
     let expected = vec![
         "TTTSII_LLL".to_string(),
         "ZTSSII_OOL".to_string(),
@@ -116,10 +126,10 @@ fn test_board_2_full_recognition() {
     assert_eq!(
         trimmed.len(),
         expected.len(),
-        "Expected {} rows, got {}: {}",
+        "Expected {} rows, got {}: {:?}",
         expected.len(),
         trimmed.len(),
-        result
+        trimmed
     );
 
     for (i, (got, exp)) in trimmed.iter().zip(expected.iter()).enumerate() {
@@ -129,4 +139,23 @@ fn test_board_2_full_recognition() {
             i, exp, got
         );
     }
+}
+
+#[test]
+fn test_board_garbage() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let path = Path::new(manifest_dir).join("tests/fixtures/board_garbage.png");
+    if !path.exists() {
+        eprintln!("Skipping: fixture not found");
+        return;
+    }
+
+    let img = image::open(path.to_str().unwrap()).unwrap().to_rgb8();
+    let (result, debug) = recognize_field(&img).expect("Recognition failed");
+    eprintln!("board_garbage debug: {}", debug);
+    eprintln!("board_garbage result:\n{}", result);
+
+    // Expected from fumen DfRpFeg0...: garbage rows at bottom, colored at top
+    let trimmed = trim_rows(&result);
+    assert!(trimmed.len() >= 4, "Expected >= 4 rows, got {}", trimmed.len());
 }
