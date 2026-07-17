@@ -402,7 +402,7 @@ pub fn recognize_field(img: &RgbImage) -> Result<(String, String), String> {
     // Trim all-garbage rows from edges (garbage buffer above board)
     let mut final_start = 0;
     for (i, line) in trimmed.iter().enumerate() {
-        if line.chars().all(|c| c == 'X' || c == '_') && line.chars().filter(|c| c == 'X').count() >= 5 {
+        if line.chars().all(|c| c == 'X' || c == '_') && line.chars().filter(|&c| c == 'X').count() >= 5 {
             final_start = i + 1;
         } else {
             break;
@@ -411,7 +411,7 @@ pub fn recognize_field(img: &RgbImage) -> Result<(String, String), String> {
 
     let mut final_end = trimmed.len();
     for (i, line) in trimmed.iter().enumerate().rev() {
-        if line.chars().all(|c| c == 'X' || c == '_') && line.chars().filter(|c| c == 'X').count() >= 5 {
+        if line.chars().all(|c| c == 'X' || c == '_') && line.chars().filter(|&c| c == 'X').count() >= 5 {
             final_end = i;
         } else {
             break;
