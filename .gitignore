@@ -1,13 +1,8 @@
-node_modules/
-dist/
-src-tauri/target/
-src-tauri/binaries/
-/output/
-src-tauri/output/
+# LaTeX build artifacts
+*.fmt
+*.aux
 *.log
-.DS_Store
-solution-finder-1.43/
-solution-finder-*.zip
-
-# Tauri generated schemas
-src-tauri/gen/schemas/
+*.pdf
+*.dvi
+*.synctex.gz
+media/Tex/

@@ -297,12 +297,9 @@ fn rgb_to_yuv(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
 
 /// Match a pixel to a Tetris piece type using a specific palette.
 pub fn match_piece_color_with_palette(r: u8, g: u8, b: u8, palette: &ColorPalette) -> char {
-    // Stage 1: greyscale detection
-    let rg = (r as i32 - g as i32).abs();
-    let gb = (g as i32 - b as i32).abs();
-    let rb = (r as i32 - b as i32).abs();
-    if rg < 8 && gb < 8 && rb < 8 {
-        let (_, _, l) = rgb_to_hsl(r, g, b);
+    // Stage 1: greyscale detection (use HSL saturation for robustness)
+    let (_, s, l) = rgb_to_hsl(r, g, b);
+    if s < 15.0 {
         if l > 25.0 {
             return 'X';
         }
@@ -332,7 +329,6 @@ pub fn match_piece_color_with_palette(r: u8, g: u8, b: u8, palette: &ColorPalett
     }
 
     // Stage 3: fallback
-    let (_, _, l) = rgb_to_hsl(r, g, b);
     if l > 20.0 {
         'X'
     } else {
@@ -430,13 +426,10 @@ pub fn recognize_field(img: &RgbImage) -> Result<(String, String), String> {
 
     let trimmed: Vec<&str> = raw_lines[start..end].iter().map(|s| s.as_str()).collect();
 
-    // Trim sparse rows from both edges
-    let max_pieces = trimmed.iter().map(|l| l.chars().filter(|c| *c != '_').count()).max().unwrap_or(0);
-    let threshold = (max_pieces / 3).max(3);
-
+    // Only trim all-empty rows (preserve garbage rows as they're part of the field)
     let mut new_start = 0;
     for (i, line) in trimmed.iter().enumerate() {
-        if line.chars().filter(|c| *c != '_').count() >= threshold {
+        if line.chars().any(|c| c != '_') {
             break;
         }
         new_start = i + 1;
@@ -444,54 +437,13 @@ pub fn recognize_field(img: &RgbImage) -> Result<(String, String), String> {
 
     let mut new_end = trimmed.len();
     for (i, line) in trimmed.iter().enumerate().rev() {
-        if line.chars().filter(|c| *c != '_').count() >= threshold {
+        if line.chars().any(|c| c != '_') {
             break;
         }
         new_end = i;
     }
 
     let trimmed = &trimmed[new_start..new_end.max(new_start)];
-
-    // If any row has no garbage (X), trim garbage rows above it
-    let has_clean_row = trimmed.iter().any(|l| !l.contains('X'));
-
-    if has_clean_row {
-        let mut final_start = 0;
-        for (i, line) in trimmed.iter().enumerate() {
-            if line.contains('X') {
-                final_start = i + 1;
-            } else {
-                break;
-            }
-        }
-        let trimmed = &trimmed[final_start..];
-        let debug = format!(
-            "palette={}, cell_w={:.1}px, n_rows={}, trimmed={}..{}, garbage_trim={}",
-            palette.name, cell_w, n_rows, start, end, final_start
-        );
-        return Ok((trimmed.join("\n"), debug));
-    }
-
-    // Trim all-garbage rows from edges (garbage buffer above/below board)
-    let mut final_start = 0;
-    for (i, line) in trimmed.iter().enumerate() {
-        if line.chars().all(|c| c == 'X' || c == '_') && line.chars().filter(|&c| c == 'X').count() >= 5 {
-            final_start = i + 1;
-        } else {
-            break;
-        }
-    }
-
-    let mut final_end = trimmed.len();
-    for (i, line) in trimmed.iter().enumerate().rev() {
-        if line.chars().all(|c| c == 'X' || c == '_') && line.chars().filter(|&c| c == 'X').count() >= 5 {
-            final_end = i;
-        } else {
-            break;
-        }
-    }
-
-    let trimmed = &trimmed[final_start..final_end.max(final_start)];
 
     let debug = format!(
         "palette={}, cell_w={:.1}px, n_rows={}, trimmed={}..{}",

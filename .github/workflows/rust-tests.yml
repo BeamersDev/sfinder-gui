@@ -1,0 +1,20 @@
+name: Rust Tests
+
+on:
+  push:
+    branches: [master, main, feat/screenshot-recognition]
+  pull_request:
+    branches: [master, main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        run: cd src-tauri && cargo test -- --test-threads=1

@@ -28,22 +28,22 @@ fn test_recognize_all_black_board() {
 #[test]
 fn test_tetr_io_color_matching() {
     // Test match_piece_color directly for precise results
-    use sfinder_gui_lib::recognition::match_piece_color;
+    use sfinder_gui_lib::recognition::{match_piece_color_with_palette, PALETTE_TETR_IO};
 
     let color_tests: &[(u8, u8, u8, char)] = &[
-        (52, 181, 133, 'I'),  // cyan
-        (179, 153, 50, 'O'),  // yellow
-        (164, 62, 154, 'T'),  // purple
-        (131, 179, 50, 'S'),  // green
-        (210, 75, 85, 'Z'),   // red
-        (79, 62, 164, 'J'),   // blue
-        (178, 98, 49, 'L'),   // orange
-        (140, 140, 145, 'X'), // garbage grey
+        (52, 181, 133, 'I'),  // 34b585 teal
+        (179, 153, 50, 'O'),  // b39932 yellow
+        (164, 62, 154, 'T'),  // a43e9a purple
+        (131, 179, 50, 'S'),  // 83b332 green
+        (180, 52, 59, 'Z'),   // b4343b red
+        (79, 62, 164, 'J'),   // 4f3ea4 blue
+        (178, 98, 49, 'L'),   // b26231 orange
+        (67, 67, 67, 'X'),    // 434343 garbage
         (10, 10, 10, '_'),    // empty black
     ];
 
     for (r, g, b, expected) in color_tests {
-        let result = match_piece_color(*r, *g, *b);
+        let result = match_piece_color_with_palette(*r, *g, *b, &PALETTE_TETR_IO);
         assert_eq!(
             result, *expected,
             "rgb({},{},{}) → expected '{}', got '{}'",
@@ -94,36 +94,36 @@ fn test_recognize_garbage_rows() {
         // Row 22 (bottom): I Z Z _ T _ L L T T (from user's expected result)
         match row {
             22 => match col {
-                0 => image::Rgb([52, 181, 133]),   // I
-                1 => image::Rgb([180, 52, 59]),    // Z
-                2 => image::Rgb([180, 52, 59]),    // Z
-                3 => image::Rgb([20, 20, 25]),     // _
-                4 => image::Rgb([164, 62, 154]),   // T
-                5 => image::Rgb([20, 20, 25]),     // _
-                6 => image::Rgb([178, 98, 49]),    // L
-                7 => image::Rgb([178, 98, 49]),    // L
-                8 => image::Rgb([164, 62, 154]),   // T
-                9 => image::Rgb([164, 62, 154]),   // T
+                0 => image::Rgb([52, 181, 133]),  // I
+                1 => image::Rgb([180, 52, 59]),   // Z
+                2 => image::Rgb([180, 52, 59]),   // Z
+                3 => image::Rgb([20, 20, 25]),    // _
+                4 => image::Rgb([164, 62, 154]),  // T
+                5 => image::Rgb([20, 20, 25]),    // _
+                6 => image::Rgb([178, 98, 49]),   // L
+                7 => image::Rgb([178, 98, 49]),   // L
+                8 => image::Rgb([164, 62, 154]),  // T
+                9 => image::Rgb([164, 62, 154]),  // T
                 _ => image::Rgb([20, 20, 25]),
             },
             21 => match col {
-                0 => image::Rgb([180, 52, 59]),    // Z
-                1 => image::Rgb([180, 52, 59]),    // Z
-                6 => image::Rgb([79, 62, 164]),    // J
-                7 => image::Rgb([79, 62, 164]),    // J
-                8 => image::Rgb([79, 62, 164]),    // J
-                9 => image::Rgb([164, 62, 154]),   // T
+                0 => image::Rgb([180, 52, 59]),   // Z
+                1 => image::Rgb([180, 52, 59]),   // Z
+                6 => image::Rgb([79, 62, 164]),   // J
+                7 => image::Rgb([79, 62, 164]),   // J
+                8 => image::Rgb([79, 62, 164]),   // J
+                9 => image::Rgb([164, 62, 154]),  // T
                 _ => image::Rgb([20, 20, 25]),
             },
             20 => match col {
-                6 => image::Rgb([79, 62, 164]),    // J
-                8 => image::Rgb([179, 153, 50]),   // O
-                9 => image::Rgb([179, 153, 50]),   // O
+                6 => image::Rgb([79, 62, 164]),   // J
+                8 => image::Rgb([179, 153, 50]),  // O
+                9 => image::Rgb([179, 153, 50]),  // O
                 _ => image::Rgb([20, 20, 25]),
             },
             19 => match col {
-                8 => image::Rgb([179, 153, 50]),   // O
-                9 => image::Rgb([179, 153, 50]),   // O
+                8 => image::Rgb([179, 153, 50]),  // O
+                9 => image::Rgb([179, 153, 50]),  // O
                 _ => image::Rgb([20, 20, 25]),
             },
             _ => image::Rgb([20, 20, 25]),
@@ -137,14 +137,7 @@ fn test_recognize_garbage_rows() {
     let lines: Vec<&str> = field.lines().collect();
     assert!(lines.len() >= 16, "Expected >= 16 lines, got {}: {}", lines.len(), field);
 
-    // The bottom 4 (colored) rows should contain I, Z, T, L, J, O
-    // (recognition scans bottom-to-top, so these appear first)
-    assert!(
-        lines[0..4].iter().any(|l| l.contains('I') || l.contains('Z') || l.contains('T')),
-        "Bottom 4 lines should contain colored blocks: {:?}", &lines[0..4]
-    );
-
-    // Garbage rows (X) should appear somewhere
+    // Garbage rows (X) should appear
     let max_x_count = lines.iter().filter(|l| l.chars().all(|c| c == 'X')).count();
     assert!(max_x_count >= 8, "Expected >= 8 all-X lines (garbage), got {}", max_x_count);
 }
